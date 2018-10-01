@@ -1,0 +1,5 @@
+# define the cpu used by Arduino/Genuino Zero board
+export CPU = samd21
+export CPU_MODEL = samd21g18a
+
+include $(RIOTMAKE)/boards/sam0.inc.mk
