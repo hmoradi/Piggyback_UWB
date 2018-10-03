@@ -117,7 +117,7 @@ typedef signed long int32;
 #define DWT_ERROR   (-1)
 
 #define DWT_TIME_UNITS          (1.0/499.2e6/128.0) //!< = 15.65e-12 s
-#define SPEED_OF_LIGHT          299702547UL //Speed of light
+
 #define DWT_DEVICE_ID   (0xDECA0130) 		//!< DW1000 MP device ID
 
 //! constants for selecting the bit rate for data TX (and RX)

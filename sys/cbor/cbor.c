@@ -980,7 +980,7 @@ static size_t cbor_stream_decode_at(cbor_stream_t *stream, size_t offset, int in
             }
             else {
                 offset += read_bytes = decode_int(stream, offset, &map_length);
-                printf("(map, length: %"PRIu64")\n", map_length);
+                printf("(map, length: %"O")\n", map_length);
             }
 
             size_t i = 0;

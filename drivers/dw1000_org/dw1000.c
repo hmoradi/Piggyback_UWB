@@ -24,13 +24,6 @@
 #include "net/ieee802154.h"
 #include "net/gnrc.h"
 
-#include <inttypes.h>
-#include <math.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
 #include "dw1000_internal.h"
 #include "dw1000_netdev.h"
 #include "dw1000_registers.h"
@@ -77,6 +70,28 @@ void dw1000_rxcallback(netdev_t *dev,const dwt_callback_data_t *rxd)
 
 
     }
+//    puts("received a packet printing CIR \r\n");
+//    dwt_rxdiag_t log;
+//    dwt_readdignostics(&log);
+//    printf("maxnoise %u \r\n",log.maxNoise);
+//    printf("firstPathAmp1 %u \r\n",log.firstPathAmp1);
+//    printf("stdNoise %u \r\n",log.stdNoise);
+//    printf("firstPathAmp2 %u \r\n",log.firstPathAmp2);
+//    printf("firstPathAmp3 %u \r\n",log.firstPathAmp3);
+//    printf("maxGrowthCIR %u \r\n",log.maxGrowthCIR);
+//    printf("rxPreamCount %u \r\n",log.rxPreamCount);
+//    printf("firstPath %d \r\n",(int)log.firstPath);
+//
+//    int index = 0;
+//    int i;
+//    while(index<4064){
+//        for (i = 0; i <= 1024; i++) {
+//            CIR[i]= 0;
+//        }
+//        dwt_readaccdata(CIR, 1024, index);
+//        od_hex_dump(CIR,1024,OD_WIDTH_DEFAULT);
+//        index += 1024;
+//    }
 
     if(dev->event_callback) {
         DEBUG("rx call back  calling netdev callback with rx complete \r\n");
@@ -114,10 +129,6 @@ void dw1000_txcallback(netdev_t *dev,const dwt_callback_data_t *txd)
 //ported
 void dw1000_setup(dw1000_t * dev, const dw1000_params_t *params)
 {
-    uint8_t dummy_addr[2] = {0x11,0x11};
-    for(int i=0;i<Num_Elements;i++){
-        memcpy(dev->ranging_info_array[i].short_addr,dummy_addr,2);
-    }
     /* set pointer to the devices netdev functions */
     dev->netdev.netdev.driver = &dw1000_driver;
     /* pull in device configuration parameters */
@@ -170,7 +181,6 @@ int dw1000_init(dw1000_t *dev)
     dwt_setinterrupt(DWT_INT_TFRS | DWT_INT_RFCG | (DWT_INT_ARFE | DWT_INT_RFSL | DWT_INT_SFDT | DWT_INT_RPHE | DWT_INT_RFCE | DWT_INT_RFTO | DWT_INT_RXPTO), 1);
 
     dwt_setcallbacks(dw1000_txcallback, dw1000_rxcallback);
-    //TDOD: get from params file 
     ///config the channel
     dwt_config_t configData;
     configData.chan =2 ;
@@ -247,17 +257,8 @@ size_t dw1000_send(dw1000_t *dev, const struct iovec *data, unsigned count)
         puts("dw1000 send can not allocate memory \r\n");
         return -1;
     }
-    unsigned offset = 0;
-    uint8_t dest_addr[2] = {0x22,0x22};
-    uint8_t src_addr[2] = {0x22,0x22};
-    //insert ranging info
-    uint32_t tx_timestamp = dwt_readsystimestamphi32();
-    tx_timestamp += DELAY_TX_5;
-    offset = dw1000_insert_ranging_info(dev,tmp,offset,src_addr,dest_addr,tx_timestamp);
-    dw1000_update_ranging_info(dev,dest_addr,TRUE);
-    //
 
-    
+    unsigned offset = 0;
     for (int i = 0; i < count; i++) {
         memcpy(&tmp[offset], data[i].iov_base, data[i].iov_len);
         offset += data[i].iov_len;
@@ -276,14 +277,8 @@ size_t dw1000_send(dw1000_t *dev, const struct iovec *data, unsigned count)
     dwt_forcetrxoff();
     dwt_writetxdata(offset+2, tmp, 0) ;
     dwt_writetxfctrl(offset+2, 0);
-    
     //dwt_setrxaftertxdelay(1) ;
-    //dwt_starttx(0); //go back to rec mode after sending
-
-    uint8_t tx_mode = DWT_START_TX_DELAYED | DWT_RESPONSE_EXPECTED;
-    dwt_setdelayedtrxtime(tx_timestamp);
-    dwt_starttx(tx_mode);
-
+    dwt_starttx(0); //go back to rec mode after sending
     free(tmp);
     DEBUG("dw1000 send is issued  \r\n");
     return offset;
@@ -316,19 +311,8 @@ int dw1000_rx(dw1000_t *dev, uint8_t *buf, size_t max_len, void *info)
         return rx_read_len()-2;
     }
     else {
-        uint8_t tmp[200];
-        uint8_t ts[5];
-        dwt_readrxdata(tmp, max_len, 0);
-        uint64_t Reply = 0;
-        uint64_t Delay = 0;
-        uint8_t src_addr[2] = {0x22,0x22};
-        dwt_readrxtimestamp(ts);
-        uint64_t curr_ts = dw1000_convert_ts_to_int(ts);
-        dw1000_extract_ranging_info(dev,tmp,0,src_addr,&Reply,&Delay);
-        dw1000_calc_dist(dev,src_addr,Reply,Delay,curr_ts);
-        dw1000_update_ranging_info(dev,src_addr,FALSE);
-        memcpy(buf,&tmp[11],max_len-11);
-        
+        //puts("read the real data from receive buffer %d \r\n");
+        dwt_readrxdata(buf, max_len, 0);
         //DEBUG("==================================\r\n");
         //od_hex_dump(buf, max_len, OD_WIDTH_DEFAULT);
         //DEBUG("==================================\r\n");
@@ -350,131 +334,3 @@ void dw1000_stoprx(void){
     dwt_forcetrxoff();
 }
 
-int dw1000_find_ranging_info(dw1000_t *dev,uint8_t * short_addr){
-    
-    for (int i=0;i<Num_Elements;i++){
-        if(dev->ranging_info_array[i].short_addr[0] == short_addr[0] ){
-            return i;
-        }
-    }
-    return -1;
-}
-
-void dw1000_calc_dist(dw1000_t *dev,uint8_t * short_addr,uint64_t Reply_a,uint64_t Delay_a,uint64_t curr_ts){
-    int index  = dw1000_find_ranging_info(dev,short_addr);
-    if(index < 0)
-        return;
-    
-    if(dev->ranging_info_array[index].tx_update | dev->ranging_info_array[index].rx_update)
-        return;
-    
-    uint64_t Reply_b = curr_ts - dev->ranging_info_array[index].last_tx_ts;
-    uint64_t Delay_b = dev->ranging_info_array[index].last_tx_ts - dev->ranging_info_array[index].last_rx_ts;
-    uint64_t ToF = (Reply_a*Reply_b - Delay_b*Delay_a) / (Reply_a + Reply_b + Delay_a + Delay_b);
-    
-    dev->ranging_info_array[index].tx_update = TRUE;
-    dev->ranging_info_array[index].rx_update = TRUE;
-    printf("measured ToF: %lu\r\n",(uint32_t)ToF);
-    double toof = ToF * DWT_TIME_UNITS;
-    double distance = toof * SPEED_OF_LIGHT;
-    printf("measured distance: %lf, %lf !!!!!!!!!!!!!!!!!!!\r\n",toof, distance);
-
-    toof = (uint32_t)ToF * DWT_TIME_UNITS;
-    distance = toof * SPEED_OF_LIGHT;
-    printf("measured distance2: %lf, %lf !!!!!!!!!!!!!!!!!!!\r\n",toof, distance);
-
-}
-uint64_t dw1000_convert_ts_to_int(uint8_t* ts){
-    uint64_t _ts = 0;
-    _ts = (uint32)ts[0] + ((uint32)ts[1] << 8) + ((uint32)ts[2] << 16) + ((uint32)ts[3] << 24) ;
-    _ts += ((uint64)ts[4] << 32);
-    return _ts;
-}
-void dw1000_update_ranging_info(dw1000_t *dev,uint8_t * short_addr,bool TX){
-    puts("update ranging info \r\n");
-    printf("dest addr %x \r\n",short_addr[0]);
-    uint8_t  txTimeStamp[5] ;
-    uint8_t  rxTimeStamp[5];
-    int index = dw1000_find_ranging_info(dev,short_addr);
-    if(index >= 0){
-        if (TX){
-            if(dev->ranging_info_array[index].tx_update){
-                dev->ranging_info_array[index].tx_update = FALSE;
-                dwt_readtxtimestamp(txTimeStamp);
-                dev->ranging_info_array[index].last_tx_ts = dw1000_convert_ts_to_int(txTimeStamp);
-            }
-        }else{
-            if(dev->ranging_info_array[index].rx_update){
-                dev->ranging_info_array[index].rx_update = FALSE;
-                dwt_readrxtimestamp(rxTimeStamp);
-                dev->ranging_info_array[index].last_rx_ts = dw1000_convert_ts_to_int(rxTimeStamp);
-            }
-        }
-    }else{ //this is the first time communicating with this node
-        uint8_t dummy_addr[2] = {0x11,0x11};
-        index = dw1000_find_ranging_info(dev,dummy_addr);
-        
-        memcpy(dev->ranging_info_array[index].short_addr , short_addr,2);
-        dev->ranging_info_array[index].rx_update = TRUE;
-        dev->ranging_info_array[index].tx_update = TRUE;
-        if(TX){
-            dwt_readtxtimestamp(txTimeStamp);
-            dev->ranging_info_array[index].last_tx_ts = dw1000_convert_ts_to_int(txTimeStamp); 
-            dev->ranging_info_array[index].tx_update = FALSE;
-        }else{
-            dwt_readtxtimestamp(rxTimeStamp);
-            dev->ranging_info_array[index].last_rx_ts = dw1000_convert_ts_to_int(rxTimeStamp); 
-            dev->ranging_info_array[index].rx_update = FALSE;
-        }
-    }
-}
-
-int dw1000_insert_ranging_info(dw1000_t* dev,uint8_t* buffer,int offset,uint8_t* src_addr,uint8_t* dest_addr,uint64_t curr_ts){
-    printf("insert ranging info from %x to %x \r\n",src_addr[0],dest_addr[0]);
-    int index  = dw1000_find_ranging_info(dev,dest_addr);
-    uint64_t last_tx_ts = dev->ranging_info_array[index].last_tx_ts;
-    uint64_t last_rx_ts = dev->ranging_info_array[index].last_rx_ts;
-    uint64_t Reply = last_rx_ts - last_tx_ts;
-    uint64_t Delay = curr_ts - last_rx_ts;
-    printf("Reply time:  %lu and %lu \r\n",(uint32_t)Reply,(uint32_t)Delay);
-    buffer[offset] = src_addr[0];
-    offset += 1;
-
-    buffer[offset] =     (Reply >> 32) & 0xFF;
-    buffer[offset + 1] = (Reply >> 24) & 0xFF;
-    buffer[offset + 2] = (Reply >> 16) & 0xFF;
-    buffer[offset + 3] = (Reply >> 8) & 0xFF;
-    buffer[offset + 4] = Reply & 0xFF;
-    offset += 5;
-    
-    buffer[offset] =     (Delay >> 32) & 0xFF;
-    buffer[offset + 1] = (Delay >> 24) & 0xFF;
-    buffer[offset + 2] = (Delay >> 16) & 0xFF;
-    buffer[offset + 3] = (Delay >> 8) & 0xFF;
-    buffer[offset + 4] = Delay & 0xFF;
-    return offset+11;
-}
-
-void dw1000_extract_ranging_info(dw1000_t* dev,uint8_t* buffer,int offset,uint8_t* short_addr,uint64_t* Reply,uint64_t*Delay){
-    puts("extract ranging info \r\n");
-    uint64_t _Reply = 0;
-    uint64_t _Delay = 0;
-    short_addr[0] = buffer[offset];
-    offset += 1;
-
-    _Reply |= ((uint64)buffer[offset]) << 32;
-    _Reply |= buffer[offset+1] << 24;
-    _Reply |= buffer[offset+2] << 16;
-    _Reply |= buffer[offset+3] << 8;
-    _Reply |= buffer[offset+4];
-    offset += 5;
-
-    _Delay |= ((uint64)buffer[offset]) << 32;
-    _Delay |= buffer[offset+1] << 24;
-    _Delay |= buffer[offset+2] << 16;
-    _Delay |= buffer[offset+3] << 8;
-    _Delay |= buffer[offset+4];
-
-    *Delay = _Delay;
-    *Reply = _Reply;
-}
