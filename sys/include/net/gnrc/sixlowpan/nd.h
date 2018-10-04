@@ -97,6 +97,7 @@ extern "C" {
  *          </a>
  */
 #define GNRC_SIXLOWPAN_ND_RTR_SOL_INT       (10U)
+
 //#define GNRC_SIXLOWPAN_ND_RTR_SOL_INT       (300U)   /**< replacement value (in seconds) for
                                                   //   *   @ref GNRC_NDP_MAX_RTR_SOL_INT */
 #define GNRC_SIXLOWPAN_ND_MAX_RTR_SOL_INT   (60U)   /**< retransmission increment for exponential

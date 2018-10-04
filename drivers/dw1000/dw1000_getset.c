@@ -247,9 +247,10 @@ int dw1000_set_state(dw1000_t *dev, netopt_state_t cmd)
             dw1000_init(dev);
             break;
         case NETOPT_STATE_RX:
-          //  puts("dw1000: set_state: NETOPT_STATE_RX\r\n");
+            printf("device in rx mode \r\n");
+            dwt_forcetrxoff();
             dwt_setrxtimeout(0); //reconfigure the timeout
-            dwt_setpreambledetecttimeout(0);
+            //dwt_setpreambledetecttimeout(0);
             //dwt_setrxaftertxdelay(1) ;
             //dwt_starttx(DWT_RESPONSE_EXPECTED); //go back to rec mode after sending
             dwt_rxenable(DWT_START_RX_IMMEDIATE) ;

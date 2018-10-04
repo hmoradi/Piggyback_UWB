@@ -129,6 +129,8 @@ enum {
 //// 20 ms in dw ticks 
 #define DELAY_TX_20 0x4C2C00
 
+#define DELAY_TX_1 0x3CF00
+#define UINT40_MAX  0xFFFFFFFFFFUL
 /**
  * @brief   Struct holding all parameters needed for device initialization
  * @{
@@ -155,8 +157,8 @@ typedef struct {
     uint64_t last_tx_ts;
     uint64_t last_rx_ts;
     uint8_t  short_addr[2];
-    bool tx_update;
-    bool rx_update;
+    bool tx_ts_valid;
+    bool rx_ts_valid;
 } dw1000_ranging_info_t;
 
 /** @} */
@@ -379,7 +381,7 @@ void dw1000_stoprx(void);
 //void dw1000_rxcallback(const dw1000_t *dev,const dwt_callback_data_t *rxd);
 void dw1000_extract_ranging_info(dw1000_t* dev,uint8_t* buffer,int offset,uint8_t* short_addr,uint64_t* Reply,uint64_t*Delay);
 int dw1000_insert_ranging_info(dw1000_t* dev,uint8_t* buffer,int offset,uint8_t* src_addr,uint8_t* dest_addr,uint64_t curr_ts);
-void dw1000_update_ranging_info(dw1000_t *dev,uint8_t * short_addr,bool TX);
+void dw1000_update_ranging_info(dw1000_t *dev,uint8_t * short_addr,bool TX,uint64_t ts);
 uint64_t dw1000_convert_ts_to_int(uint8_t* ts);
 void dw1000_calc_dist(dw1000_t *dev,uint8_t * short_addr,uint64_t Reply_a,uint64_t Delay_a,uint64_t curr_ts);
 int dw1000_find_ranging_info(dw1000_t *dev,uint8_t * short_addr);
