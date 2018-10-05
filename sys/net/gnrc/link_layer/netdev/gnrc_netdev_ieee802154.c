@@ -194,7 +194,10 @@ static int _send(gnrc_netdev_t *gnrc_netdev, gnrc_pktsnip_t *pkt)
         dst_len = netif_hdr->dst_l2addr_len;
         DEBUG("ieee802154->send -> ip %c and len is %d  \r\n",*dst,dst_len);
     }
-
+    //added to print dst address
+    //char dst_str[GNRC_NETIF_HDR_L2ADDR_PRINT_LEN];
+    //printf("_send_ieee802154: send packet to %s \r\n",gnrc_netif_addr_to_str(dst_str, sizeof(dst_str),dst,dst_len));
+    //
     src_len = netif_hdr->src_l2addr_len;
     //DEBUG("ieee8025: part 2 done and src addr len is %d \r\n",src_len);
     if (src_len > 0) {
@@ -239,6 +242,7 @@ static int _send(gnrc_netdev_t *gnrc_netdev, gnrc_pktsnip_t *pkt)
             gnrc_netdev->dev->stats.tx_unicast_count++;
         }
 #endif
+
 #ifdef MODULE_GNRC_MAC
         if (gnrc_netdev->mac_info & GNRC_NETDEV_MAC_INFO_CSMA_ENABLED) {
             res = csma_sender_csma_ca_send(netdev, vector, n, &gnrc_netdev->csma_conf);
@@ -248,6 +252,7 @@ static int _send(gnrc_netdev_t *gnrc_netdev, gnrc_pktsnip_t *pkt)
         }
 #else
         DEBUG("ieee8025: sending through driver \r\n");
+        
         res = netdev->driver->send(netdev, vector, n);
 #endif
     }

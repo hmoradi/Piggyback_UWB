@@ -176,6 +176,7 @@ typedef struct {
     uint8_t state;                /**< current state of the radio */
     uint16_t options;             /**< state of used options */
     dw1000_ranging_info_t  ranging_info_array[Num_Elements]; /**< array of ranging info structs */
+    uint8_t dst_addr[2];
 } dw1000_t;
 
 
