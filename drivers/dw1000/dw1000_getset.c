@@ -34,7 +34,8 @@
 void dw1000_get_addr_short(dw1000_t *dev, uint8_t *addr)
 {
     uint16 temp;
-    temp = dwt_read16bitoffsetreg(PANADR_ID, 0);
+    //temp = dwt_read16bitoffsetreg(PANADR_ID, 0);
+    temp = dwt_getaddress16();
     *addr = temp;
 }
 
@@ -73,7 +74,7 @@ void dw1000_set_addr_long(dw1000_t *dev, uint8_t *addr)
 
 uint16_t dw1000_get_pan(dw1000_t *dev)
 {
-    return dwt_read16bitoffsetreg(PANADR_ID, 0);
+    return dwt_getpanid();
 }
 
 void dw1000_set_pan(dw1000_t *dev, uint16_t pan)

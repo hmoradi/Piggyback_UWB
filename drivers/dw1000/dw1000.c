@@ -51,12 +51,18 @@ void dw1000_rxcallback(netdev_t *dev,const dwt_callback_data_t *rxd)
         dwt_readrxdata(tmp, 126, 0);
         uint64_t Reply = 0;
         uint64_t Delay = 0;
-        uint8_t src_addr[2] = {0x22,0x22};
+        uint8_t last_tx_seq_nb = 0;
+        uint8_t last_rx_seq_nb = 0;
+        uint8_t last_seq_nb = 0;
+        uint8_t src_addr[2];
+        src_addr[0] = tmp[0];
+        src_addr[1] = tmp[1];
+
         dwt_readrxtimestamp(ts);
         uint64_t curr_ts = dw1000_convert_ts_to_int(ts);
-        dw1000_extract_ranging_info((dw1000_t*)dev,tmp,0,src_addr,&Reply,&Delay);
-        dw1000_calc_dist((dw1000_t*)dev,src_addr,Reply,Delay,curr_ts);
-        dw1000_update_ranging_info((dw1000_t*)dev,src_addr,FALSE,curr_ts);
+        dw1000_extract_ranging_info((dw1000_t*)dev,tmp,0,src_addr,&Reply,&Delay,&last_tx_seq_nb,&last_rx_seq_nb,&last_seq_nb);
+        dw1000_calc_dist((dw1000_t*)dev,src_addr,Reply,Delay,curr_ts,last_rx_seq_nb,last_tx_seq_nb);
+        dw1000_update_ranging_info((dw1000_t*)dev,src_addr,curr_ts,last_seq_nb,last_tx_seq_nb);
 
         if(dev->event_callback) {
             DEBUG("rx call back  calling netdev callback with rx complete \r\n");
@@ -75,6 +81,7 @@ void dw1000_txcallback(netdev_t *dev,const dwt_callback_data_t *txd)
     printf("TX done %d \r\n",txevent);
     if(txevent == DWT_SIG_TX_DONE)
     {
+        ((dw1000_t *)dev)->seq_nb ++;
         //printf("TX done \r\n");
         //puts("dw1000 tx callback TX done \r\n");
         //dw1000_set_state(dev, NETOPT_STATE_RX);
@@ -107,6 +114,7 @@ void dw1000_setup(dw1000_t * dev, const dw1000_params_t *params)
     //dev->state = DW1000_IDLE_MODE;
     /* reset device descriptor fields */
     dev->options = 0;
+    dev->seq_nb = 0;
 }
 //ported
 int dw1000_init(dw1000_t *dev)
@@ -234,15 +242,17 @@ size_t dw1000_send(dw1000_t *dev, const struct iovec *data, unsigned count)
         return -1;
     }
     unsigned offset = 0;
-    uint8_t dest_addr[2] = {0x22,0x22};
-    uint8_t src_addr[2] = {0x22,0x22};
+    uint8_t dest_addr[2] = {0xFF,0xFF};
+    uint8_t src_addr[2];
+    dw1000_get_addr_short(dev,src_addr);
     //insert ranging info
     uint32_t tx_timestamp = dwt_readsystimestamphi32();
     tx_timestamp += DELAY_TX_5;
     uint64_t tx_timestamp_64 = tx_timestamp;
     tx_timestamp_64 = tx_timestamp_64 << 8;
     offset = dw1000_insert_ranging_info(dev,tmp,offset,src_addr,dest_addr,tx_timestamp_64);
-    dw1000_update_ranging_info(dev,dest_addr,TRUE,tx_timestamp_64);
+    dev->last_tx_ts[dev->seq_nb] = tx_timestamp_64;
+    //dw1000_update_ranging_info(dev,dest_addr,TRUE,tx_timestamp_64);
     //
 
     
@@ -335,23 +345,23 @@ int dw1000_find_ranging_info(dw1000_t *dev,uint8_t * short_addr){
     return -1;
 }
 
-void dw1000_calc_dist(dw1000_t *dev,uint8_t * short_addr,uint64_t Reply_a,uint64_t Delay_a,uint64_t curr_ts){
+void dw1000_calc_dist(dw1000_t *dev,uint8_t * short_addr,uint64_t Reply_a,uint64_t Delay_a,uint64_t curr_ts,uint8_t last_rx_seq_nb,uint8_t last_tx_seq_nb){
     int index  = dw1000_find_ranging_info(dev,short_addr);
     if(index < 0)
         return;
     
-    if(dev->ranging_info_array[index].tx_ts_valid == FALSE || dev->ranging_info_array[index].rx_ts_valid == FALSE){
-        printf("not valid local time stamps \r\n");
-        return;
-    }
+    // if(dev->ranging_info_array[index].tx_ts_valid == FALSE || dev->ranging_info_array[index].rx_ts_valid == FALSE){
+    //     printf("not valid local time stamps \r\n");
+    //     return;
+    // }
     
     if(Reply_a == 0 || Delay_a == 0){
         printf("not valid remote time stamps \r\n");
         return;
     }
 
-    uint64_t Reply_b = (curr_ts - dev->ranging_info_array[index].last_tx_ts+ UINT40_MAX) % UINT40_MAX;
-    uint64_t Delay_b = (dev->ranging_info_array[index].last_tx_ts - dev->ranging_info_array[index].last_rx_ts + UINT40_MAX)%UINT40_MAX ;
+    uint64_t Reply_b = (curr_ts - dev->last_tx_ts[last_tx_seq_nb]+ UINT40_MAX) % UINT40_MAX;
+    uint64_t Delay_b = (dev->last_tx_ts[last_tx_seq_nb] - dev->ranging_info_array[index].last_rx_ts[last_rx_seq_nb] + UINT40_MAX)%UINT40_MAX ;
     uint64_t ToF = (Reply_a*Reply_b - Delay_b*Delay_a) / (Reply_a + Reply_b + Delay_a + Delay_b);
     
     //dev->ranging_info_array[index].tx_ts_valid = FALSE;
@@ -395,33 +405,23 @@ uint64_t dw1000_convert_ts_to_int(uint8_t* ts){
     }
     return _ts;
 }
-void dw1000_update_ranging_info(dw1000_t *dev,uint8_t * short_addr,bool TX,uint64_t ts){
+void dw1000_update_ranging_info(dw1000_t *dev,uint8_t * short_addr,uint64_t ts,uint8_t last_seq,uint8_t last_tx_seq){
     
     //printf("dest addr %x \r\n",short_addr[0]);
     int index = dw1000_find_ranging_info(dev,short_addr);
     printf("update ranging info at index %d \r\n",index);
-    if(index >= 0){
-        if (TX){
-            dev->ranging_info_array[index].tx_ts_valid = TRUE;
-            dev->ranging_info_array[index].last_tx_ts = ts;
-        }else{
-            dev->ranging_info_array[index].rx_ts_valid = TRUE;
-            dev->ranging_info_array[index].last_rx_ts = ts;           
-        }
+    if(index >= 0){    
+        dev->ranging_info_array[index].last_rx_ts[last_seq] = ts;
+        dev->ranging_info_array[index].last_rx_seq_nb = last_seq;
+        dev->ranging_info_array[index].last_tx_seq_nb = last_tx_seq;
     }else{ //this is the first time communicating with this node
         uint8_t dummy_addr[2] = {0x11,0x11};
         index = dw1000_find_ranging_info(dev,dummy_addr);
         
         memcpy(dev->ranging_info_array[index].short_addr , short_addr,2);
-        dev->ranging_info_array[index].rx_ts_valid = FALSE;
-        dev->ranging_info_array[index].tx_ts_valid = FALSE;
-        if(TX){
-            dev->ranging_info_array[index].last_tx_ts = ts; 
-            dev->ranging_info_array[index].tx_ts_valid = TRUE;
-        }else{
-            dev->ranging_info_array[index].last_rx_ts = ts;
-            dev->ranging_info_array[index].rx_ts_valid = TRUE;
-        }
+        dev->ranging_info_array[index].last_rx_ts[last_seq] = ts;
+        dev->ranging_info_array[index].last_rx_seq_nb = last_seq;
+        dev->ranging_info_array[index].last_tx_seq_nb = last_tx_seq;    
     }
 }
 
@@ -431,12 +431,13 @@ int dw1000_insert_ranging_info(dw1000_t* dev,uint8_t* buffer,int offset,uint8_t*
     //printf("insert ranging info from %x to %x at index %d \r\n",src_addr[0],dest_addr[0],index);
     uint64_t Reply = 0;
     uint64_t Delay = 0;
-    if(dev->ranging_info_array[index].tx_ts_valid && dev->ranging_info_array[index].rx_ts_valid){
-        Reply = (dev->ranging_info_array[index].last_rx_ts - dev->ranging_info_array[index].last_tx_ts+UINT40_MAX)%UINT40_MAX;
-        Delay = (curr_ts - dev->ranging_info_array[index].last_rx_ts+UINT40_MAX)%UINT40_MAX;    
-    }
-    //dev->ranging_info_array[index].tx_ts_valid = FALSE;
-    //dev->ranging_info_array[index].rx_ts_valid = FALSE;
+    
+    uint8_t last_tx_seq_nb = dev->ranging_info_array[index].last_tx_seq_nb;
+    uint8_t last_rx_seq_nb = dev->ranging_info_array[index].last_rx_seq_nb;
+    
+    Reply = (dev->ranging_info_array[index].last_rx_ts[last_rx_seq_nb] - dev->last_tx_ts[last_tx_seq_nb]+UINT40_MAX)%UINT40_MAX;
+    Delay = (curr_ts - dev->ranging_info_array[index].last_rx_ts[last_rx_seq_nb]+UINT40_MAX)%UINT40_MAX;    
+    
 
     char out1[17] = "----------------";
     char out2[17] = "----------------";
@@ -445,7 +446,13 @@ int dw1000_insert_ranging_info(dw1000_t* dev,uint8_t* buffer,int offset,uint8_t*
     printf("Inserted Reply time:  %s and Delay time %s \r\n",out1,out2);
     
     buffer[offset] = src_addr[0];
-    offset += 1;
+    buffer[offset+1] = src_addr[1];
+    
+    offset += 2;
+    buffer[offset] = last_tx_seq_nb;
+    buffer[offset+1] = last_rx_seq_nb;
+    buffer[offset+2] = dev->seq_nb;
+    offset += 3;
 
     buffer[offset] =     (Reply >> 32) & 0xFF;
     buffer[offset + 1] = (Reply >> 24) & 0xFF;
@@ -462,23 +469,28 @@ int dw1000_insert_ranging_info(dw1000_t* dev,uint8_t* buffer,int offset,uint8_t*
     return offset+5;
 }
 
-void dw1000_extract_ranging_info(dw1000_t* dev,uint8_t* buffer,int offset,uint8_t* short_addr,uint64_t* Reply,uint64_t*Delay){
+void dw1000_extract_ranging_info(dw1000_t* dev,uint8_t* buffer,int offset,uint8_t* short_addr,uint64_t* Reply,uint64_t*Delay,uint8_t * last_tx_seq_nb,uint8_t* last_rx_seq_nb,uint8_t* rx_seq_nb){
     //puts("extract ranging info \r\n");
     uint64_t _Reply = 0;
     uint64_t _Delay = 0;
     short_addr[0] = buffer[offset];
-    offset += 1;
+    short_addr[1] = buffer[offset+1];
+    offset += 2;
+    *last_rx_seq_nb = buffer[offset];
+    *last_tx_seq_nb = buffer[offset+1];
+    *rx_seq_nb = buffer[offset+2];
+    offset += 3;
 
     int j;
     for (j = 0 ; j <= 4 ; j ++)
     {
-            _Reply = (_Reply << 8) + buffer[offset+j] ;        // sum
+        _Reply = (_Reply << 8) + buffer[offset+j] ;        // sum
     }
     
     offset += 5;
     for (j = 0 ; j <= 4 ; j ++)
     {
-            _Delay = (_Delay << 8) + buffer[offset+j] ;        // sum
+        _Delay = (_Delay << 8) + buffer[offset+j] ;        // sum
     }
     *Delay = _Delay;
     *Reply = _Reply;
@@ -488,5 +500,6 @@ void dw1000_extract_ranging_info(dw1000_t* dev,uint8_t* buffer,int offset,uint8_
     fmt_u64_hex(out1, _Reply);
     fmt_u64_hex(out2, _Delay);
     printf("Extracted Reply time:  %s and Delay time %s \r\n",out1,out2);
+    printf("Extracted last tx seq:  %d and last rx seq %d \r\n",*last_tx_seq_nb,*last_rx_seq_nb);
     return;
 }

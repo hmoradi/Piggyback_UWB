@@ -1657,6 +1657,10 @@ void dwt_setpanid(uint16 panID)
     // PAN ID is high 16 bits of register
     dwt_write16bitoffsetreg(PANADR_ID, 2, panID) ;     // set the value
 }
+uint16 dwt_getpanid(void){
+    uint16 panID = dwt_read16bitoffsetreg(PANADR_ID, 2) ;   
+    return panID;
+}
 
 /*! ------------------------------------------------------------------------------------------------------------------
  * @fn dwt_setaddress16()
@@ -1676,7 +1680,11 @@ void dwt_setaddress16(uint16 shortAddress)
     // short address into low 16 bits
     dwt_write16bitoffsetreg(PANADR_ID, 0, shortAddress) ;     // set the value
 }
-
+uint16 dwt_getaddress16(void){
+    uint16 shortaddr;
+    shortaddr = dwt_read16bitoffsetreg(PANADR_ID, 0) ; 
+    return shortaddr;  
+}
 /*! ------------------------------------------------------------------------------------------------------------------
  * @fn dwt_seteui()
  *

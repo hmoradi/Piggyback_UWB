@@ -1145,7 +1145,7 @@ void dwt_setinterrupt( uint32 bitmask, uint8 enable);
  * no return value
  */
 void dwt_setpanid(uint16 panID);
-
+uint16 dwt_getpanid(void);
 /*! ------------------------------------------------------------------------------------------------------------------
  * Function: dwt_setaddress16()
  *
@@ -1160,7 +1160,7 @@ void dwt_setpanid(uint16 panID);
  * no return value
  */
 void dwt_setaddress16(uint16 shortAddress);
-
+uint16 dwt_getaddress16(void);
 
 /*! ------------------------------------------------------------------------------------------------------------------
  * Function: dwt_seteui()

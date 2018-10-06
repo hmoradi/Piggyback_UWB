@@ -154,11 +154,11 @@ typedef struct dw1000_params {
  * @{
  */
 typedef struct {
-    uint64_t last_tx_ts;
-    uint64_t last_rx_ts;
+    //uint64_t last_tx_ts[255];
+    uint64_t last_rx_ts[255];
     uint8_t  short_addr[2];
-    bool tx_ts_valid;
-    bool rx_ts_valid;
+    uint8_t last_tx_seq_nb;
+    uint8_t last_rx_seq_nb;
 } dw1000_ranging_info_t;
 
 /** @} */
@@ -176,7 +176,8 @@ typedef struct {
     uint8_t state;                /**< current state of the radio */
     uint16_t options;             /**< state of used options */
     dw1000_ranging_info_t  ranging_info_array[Num_Elements]; /**< array of ranging info structs */
-    uint8_t dst_addr[2];
+    uint64_t last_tx_ts[255];
+    uint8_t seq_nb;
 } dw1000_t;
 
 
@@ -380,11 +381,11 @@ int dw1000_startrx(uint16 time);
 void dw1000_stoprx(void);
 //void dw1000_rxcallback(const dw1000_t *dev,const dwt_callback_data_t *rxd);
 //void dw1000_rxcallback(const dw1000_t *dev,const dwt_callback_data_t *rxd);
-void dw1000_extract_ranging_info(dw1000_t* dev,uint8_t* buffer,int offset,uint8_t* short_addr,uint64_t* Reply,uint64_t*Delay);
+void dw1000_extract_ranging_info(dw1000_t* dev,uint8_t* buffer,int offset,uint8_t* short_addr,uint64_t* Reply,uint64_t*Delay,uint8_t * last_tx_seq_nb,uint8_t* last_rx_seq_nb,uint8_t* rx_seq_nb);
 int dw1000_insert_ranging_info(dw1000_t* dev,uint8_t* buffer,int offset,uint8_t* src_addr,uint8_t* dest_addr,uint64_t curr_ts);
-void dw1000_update_ranging_info(dw1000_t *dev,uint8_t * short_addr,bool TX,uint64_t ts);
+void dw1000_update_ranging_info(dw1000_t *dev,uint8_t * short_addr,uint64_t ts,uint8_t last_seq,uint8_t last_tx_seq);
 uint64_t dw1000_convert_ts_to_int(uint8_t* ts);
-void dw1000_calc_dist(dw1000_t *dev,uint8_t * short_addr,uint64_t Reply_a,uint64_t Delay_a,uint64_t curr_ts);
+void dw1000_calc_dist(dw1000_t *dev,uint8_t * short_addr,uint64_t Reply_a,uint64_t Delay_a,uint64_t curr_ts,uint8_t last_rx_seq_nb,uint8_t last_tx_seq_nb);
 int dw1000_find_ranging_info(dw1000_t *dev,uint8_t * short_addr);
 #ifdef __cplusplus
 }
