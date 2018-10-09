@@ -27,6 +27,7 @@
 
 #include "net/netdev.h"
 #include "net/netdev/ieee802154.h"
+#include "xtimer.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -149,6 +150,10 @@ typedef struct dw1000_params {
 } dw1000_params_t;
 /** @} */
 
+typedef struct {
+    uint32_t OS_ts;
+    uint64_t dw1000_ts;
+} dw1000_time_info;
 /** @} *//**
  * @brief   keeps required ranging info 
  * @{
@@ -178,7 +183,9 @@ typedef struct {
     dw1000_ranging_info_t  ranging_info_array[Num_Elements]; /**< array of ranging info structs */
     uint64_t last_tx_ts[255];
     uint8_t seq_nb;
+    uint32_t last_sec;
 } dw1000_t;
+
 
 
 
@@ -382,11 +389,16 @@ void dw1000_stoprx(void);
 //void dw1000_rxcallback(const dw1000_t *dev,const dwt_callback_data_t *rxd);
 //void dw1000_rxcallback(const dw1000_t *dev,const dwt_callback_data_t *rxd);
 void dw1000_extract_ranging_info(dw1000_t* dev,uint8_t* buffer,int offset,uint8_t* short_addr,uint64_t* Reply,uint64_t*Delay,uint8_t * last_tx_seq_nb,uint8_t* last_rx_seq_nb,uint8_t* rx_seq_nb);
+
+void dw1000_calc_dist(dw1000_t *dev,uint8_t * short_addr,uint64_t Reply_a,uint64_t Delay_a,uint64_t curr_ts,uint8_t last_rx_seq_nb,uint8_t last_tx_seq_nb);
+uint64_t dw1000_convert_ts_to_int(uint8_t* ts);
+
+int dw1000_find_ranging_info(dw1000_t *dev,uint8_t * short_addr);
+uint64_t dw1000_calc_time_diff(uint64_t a,uint64_t b);
 int dw1000_insert_ranging_info(dw1000_t* dev,uint8_t* buffer,int offset,uint8_t* src_addr,uint8_t* dest_addr,uint64_t curr_ts);
 void dw1000_update_ranging_info(dw1000_t *dev,uint8_t * short_addr,uint64_t ts,uint8_t last_seq,uint8_t last_tx_seq);
-uint64_t dw1000_convert_ts_to_int(uint8_t* ts);
-void dw1000_calc_dist(dw1000_t *dev,uint8_t * short_addr,uint64_t Reply_a,uint64_t Delay_a,uint64_t curr_ts,uint8_t last_rx_seq_nb,uint8_t last_tx_seq_nb);
-int dw1000_find_ranging_info(dw1000_t *dev,uint8_t * short_addr);
+int dw1000_find_offset_in_broadcast(uint8_t* buffer,uint8_t * short_addr,int ele,int offset);
+int dw1000_copy_range_info(dw1000_t* dev, int index,uint8_t* buffer,int offset,uint64_t curr_ts);
 #ifdef __cplusplus
 }
 #endif

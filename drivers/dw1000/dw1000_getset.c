@@ -33,10 +33,11 @@
 
 void dw1000_get_addr_short(dw1000_t *dev, uint8_t *addr)
 {
-    uint16 temp;
+    //uint16 temp;
     //temp = dwt_read16bitoffsetreg(PANADR_ID, 0);
-    temp = dwt_getaddress16();
-    *addr = temp;
+    //temp = dwt_getaddress16();
+    //*addr = temp;
+    memcpy(addr,dev->netdev.short_addr, 2);
 }
 
 void dw1000_set_addr_short(dw1000_t *dev, uint8_t *addr)
