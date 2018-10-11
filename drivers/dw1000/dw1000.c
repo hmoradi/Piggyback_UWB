@@ -59,8 +59,7 @@ static uint8_t write_index = 0;
 static uint8_t read_index = 0;
 static kernel_pid_t sched_pid;
 static kernel_pid_t act_rang_pid;
-static int data_packets = 0;
-static int range_packets = 0;
+static bool send_busy = FALSE;
 static void time_evt(void *arg)
 {
     thread_flags_set((thread_t *)arg, 0x1);
@@ -102,10 +101,10 @@ void* scheduler(void *arg){
     dw1000_t* dev = arg; 
     while(TRUE){
         mutex_lock(&mode_mtx);
-        dev->datarate = data_packets;
+        dev->datarate = dev->data_packets;
         //dev->rangrate = range_packets / SCHED_TIMEOUT;
-        data_packets = 0;
-        range_packets = 0;
+        dev->data_packets = 0;
+        dev->range_packets = 0;
         printf("in scheduler data rate is %d and range rate is %d \r\n",dev->datarate,dev->rangrate);
         if(dev->datarate >= dev->rangrate){ //passive ranging
             printf("going to passive mode \r\n");
@@ -124,6 +123,8 @@ void* scheduler(void *arg){
             }
         }
         mutex_unlock(&mode_mtx);
+        if(_mode == 1)
+            dw1000_flush_buffer(dev);
         xtimer_set(&timer, SCHED_TIMEOUT);
         thread_flags_wait_any(0x1);
     }
@@ -132,6 +133,23 @@ void* scheduler(void *arg){
     printf("scheduler thread is exiting \r\n");
     return NULL;
 }
+void dw1000_flush_buffer(dw1000_t* dev){
+    struct iovec tmp_vec;
+    while(read_index != write_index){
+        xtimer_usleep(10000);
+        if(send_busy){
+            xtimer_usleep(1000);
+
+        }else{
+            printf("flush buffer shrinking the buffer at read_index %d while write index is %d \r\n",read_index,write_index);
+            tmp_vec.iov_base = queue[read_index].data;
+            tmp_vec.iov_len = queue[read_index].datalen;
+            dw1000_send(dev,&tmp_vec,1);
+            read_index = (read_index + 1) % queue_len;
+        }
+    }
+
+}
 void dw1000_rxcallback(netdev_t *dev,const dwt_callback_data_t *rxd)
 {
     //if we got a frame with a good CRC - RX OK
@@ -139,19 +157,25 @@ void dw1000_rxcallback(netdev_t *dev,const dwt_callback_data_t *rxd)
     if(rxd->event == DWT_SIG_RX_OKAY)
     {    
         uint8_t ts[5];
-        uint8_t tmp[200];
-        dwt_readrxdata(tmp, 126, 0);
+        //uint8_t tmp[200];
+        dwt_readrxdata(((dw1000_t*)dev)->rec_buff, 100, 0);
+        //printf("rec data at rx callback \r\n");
+        //od_hex_dump(rec_buff, 60, OD_WIDTH_DEFAULT);
+
         uint64_t Reply = 0;
         uint64_t Delay = 0;
         uint8_t last_tx_seq_nb = 0;
         uint8_t last_rx_seq_nb = 0;
         uint8_t last_seq_nb = 0;
         uint8_t src_addr[2];
-        uint8_t ele = tmp[0] & 0x7F;
-        src_addr[0] = tmp[1];
-        src_addr[1] = tmp[2];
+        uint8_t ele = ((dw1000_t*)dev)->rec_buff[0] & 0x7F;
+        src_addr[0] = ((dw1000_t*)dev)->rec_buff[1];
+        src_addr[1] = ((dw1000_t*)dev)->rec_buff[2];
+        uint8_t ind = 16*ele + 4;
+        ((dw1000_t*)dev)->rec_len = rx_read_len()-2-ind;
+
         bool _auto = FALSE;
-        if(tmp[0] & 0x80)
+        if(((dw1000_t*)dev)->rec_buff[0] & 0x80)
             _auto = TRUE;
         
 
@@ -162,24 +186,25 @@ void dw1000_rxcallback(netdev_t *dev,const dwt_callback_data_t *rxd)
         uint64_t now_64 = now.seconds;
         now_64 = now_64 << 40;
         curr_ts |= now_64;
-        dw1000_extract_ranging_info((dw1000_t*)dev,tmp,0,src_addr,&Reply,&Delay,&last_tx_seq_nb,&last_rx_seq_nb,&last_seq_nb);
+        dw1000_extract_ranging_info((dw1000_t*)dev,((dw1000_t*)dev)->rec_buff,0,src_addr,&Reply,&Delay,&last_tx_seq_nb,&last_rx_seq_nb,&last_seq_nb);
         dw1000_calc_dist((dw1000_t*)dev,src_addr,Reply,Delay,curr_ts,last_rx_seq_nb,last_tx_seq_nb);
         dw1000_update_ranging_info((dw1000_t*)dev,src_addr,curr_ts,last_seq_nb,last_tx_seq_nb);
-        if(ele*16+4 < rx_read_len()-2){
-            printf("packet has extra payload ^^^^^^^^^^^^^^^^^^^^^\r\n");
+        if(ele*16+4 < ((dw1000_t*)dev)->rec_len){
+            //printf("packet has extra payload ^^^^^^^^^^^^^^^^^^^^^\r\n");
             if(dev->event_callback) {
                 DEBUG("rx call back  calling netdev callback with rx complete \r\n");
 
                 dev->event_callback(dev, NETDEV_EVENT_RX_COMPLETE);
             }
-            dw1000_set_state((dw1000_t *)dev, NETOPT_STATE_RX);
+            //dw1000_set_state((dw1000_t *)dev, NETOPT_STATE_RX);
         }else{
-            printf("just ranging packet (total len %d)do not send it up to network \r\n",rx_read_len()-2);
+            //printf("just ranging packet (total len %d)do not send it up to network \r\n",rx_read_len()-2);
             if(_auto){
                 mutex_lock(&auto_reply_mtx);
                 auto_reply = FALSE;
                 mutex_unlock(&auto_reply_mtx);
-                printf("packet has auto reply request \r\n");
+                //printf("packet has auto reply request \r\n");
+                ((dw1000_t*)dev)->rec_len = 0;
                 dw1000_send((dw1000_t*)dev,NULL,0);
             }
         }
@@ -210,6 +235,7 @@ void dw1000_txcallback(netdev_t *dev,const dwt_callback_data_t *txd)
 
         dev->event_callback(dev, NETDEV_EVENT_TX_COMPLETE);
     }
+    send_busy = FALSE;
     
 }
 
@@ -362,6 +388,7 @@ int dw1000_init(dw1000_t *dev)
 //ported
 size_t dw1000_send(dw1000_t *dev, const struct iovec *data, unsigned count)
 {
+    send_busy = TRUE;
     mutex_lock(&mode_mtx);
     uint8_t local_mode = _mode;
     mutex_unlock(&mode_mtx);
@@ -375,13 +402,15 @@ size_t dw1000_send(dw1000_t *dev, const struct iovec *data, unsigned count)
             memcpy(&(queue[write_index].data[local_offset]), data[i].iov_base, data[i].iov_len);
             local_offset += data[i].iov_len;
         }
-        printf("in radio send: copy the message to queue at index %d with size %d \r\n",write_index,local_offset);
+        //printf("in radio send: copy the message to queue at index %d with size %d \r\n",write_index,local_offset);
+        //od_hex_dump(queue[write_index].data, local_offset, OD_WIDTH_DEFAULT);
         queue[write_index].seq_nb = dev->seq_nb;
         queue[write_index].datalen = local_offset;
         queue[write_index].time = now.seconds;
         write_index = (write_index + 1) % queue_len;
         dev->seq_nb ++;
-        data_packets ++;
+        dev->data_packets ++;
+        send_busy = FALSE;
         return 0;    
     }
     
@@ -423,15 +452,17 @@ size_t dw1000_send(dw1000_t *dev, const struct iovec *data, unsigned count)
             if (offset > 1024) {
                 printf("dw1000 send is called with over size %d \r\n",offset);
                 //free(tmp);
+                send_busy = FALSE;
                 return -1;
             }
         }
-        data_packets ++;
+        dev->data_packets ++;
     }else{ //active ranging
         if(read_index != write_index){
-            printf(" in radio send read from queued messages from index %d \r\n",read_index);
+            //printf(" in radio send read from queued messages from index %d \r\n",read_index);
             memcpy(&tmp[offset], queue[read_index].data, queue[read_index].datalen);
             offset += queue[read_index].datalen;
+            //od_hex_dump(tmp, offset, OD_WIDTH_DEFAULT);
             read_index = (read_index + 1) % queue_len;
         }
     }
@@ -446,6 +477,7 @@ size_t dw1000_send(dw1000_t *dev, const struct iovec *data, unsigned count)
     
     if(res == DWT_ERROR){
         printf("send failed &&&&&&&&&&&&\r\n");
+        send_busy = FALSE;
         dwt_forcetrxoff();
         dw1000_set_state(dev, NETOPT_STATE_RX);
     }
@@ -480,29 +512,26 @@ int dw1000_rx(dw1000_t *dev, uint8_t *buf, size_t max_len, void *info)
         radio_info->rssi = 65; //ToDO: fix this later
     }
     if (buf == NULL) {
-        uint8_t tmp[200];
-        dwt_readrxdata(tmp, 2, 0);
-        uint8_t ele = tmp[0]&0x7F;
-        
-        uint8_t ind = 16*ele + 4;
-        return rx_read_len()-2-ind;
+        return dev->rec_len;
     }
     else {
-        uint8_t tmp[200];
-        dwt_readrxdata(tmp, max_len, 0);
-        uint8_t ele = tmp[0]&0x7F;
+        
+        
+        uint8_t ele = dev->rec_buff[0]&0x7F;
         
         uint8_t ind = 16*ele + 4;
         printf("reading from %d for %d bytes\r\n",ind,max_len);
         if (ind > max_len){
             ind = 0;
         }
-        memcpy(buf,&tmp[ind],max_len);
-        
+        memcpy(buf,&dev->rec_buff[ind],max_len);
+        //od_hex_dump(buf,max_len,OD_WIDTH_DEFAULT);
+        dev->rec_len = 0;
+        dw1000_set_state(dev, NETOPT_STATE_RX);
     }
 
     //DEBUG("after reading the buffer set device to rx mode \r\n");
-    dw1000_set_state(dev, NETOPT_STATE_RX);//TODO how about sending the autoack
+    //TODO how about sending the autoack
     return max_len;
 }
 
@@ -540,12 +569,12 @@ void dw1000_calc_dist(dw1000_t *dev,uint8_t * short_addr,uint64_t Reply_a,uint64
         return;
     
     
-    char out1[17] = "----------------";
-    fmt_u64_hex(out1, dev->last_tx_ts[last_tx_seq_nb]);
-    char out2[17] = "----------------";
-    fmt_u64_hex(out2, dev->ranging_info_array[index].last_rx_ts[last_rx_seq_nb]);
-    char out3[17] = "----------------";
-    fmt_u64_hex(out3, curr_ts);
+    // char out1[17] = "----------------";
+    // fmt_u64_hex(out1, dev->last_tx_ts[last_tx_seq_nb]);
+    // char out2[17] = "----------------";
+    // fmt_u64_hex(out2, dev->ranging_info_array[index].last_rx_ts[last_rx_seq_nb]);
+    // char out3[17] = "----------------";
+    // fmt_u64_hex(out3, curr_ts);
     //printf("last tx with %d with ts %s and last rx %d with ts %s \r\n",last_tx_seq_nb,out1,last_rx_seq_nb,out2);
     //printf("current rx ts : %s \r\n",out3);
     

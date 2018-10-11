@@ -192,6 +192,10 @@ typedef struct {
     uint32_t last_sec;
     uint8_t datarate;
     uint8_t rangrate;
+    uint8_t data_packets;
+    uint8_t range_packets;
+    uint8_t rec_buff[100];
+    uint8_t rec_len ;
 } dw1000_t;
 
 
@@ -407,6 +411,7 @@ int dw1000_insert_ranging_info(dw1000_t* dev,uint8_t* buffer,int offset,uint8_t*
 void dw1000_update_ranging_info(dw1000_t *dev,uint8_t * short_addr,uint64_t ts,uint8_t last_seq,uint8_t last_tx_seq);
 int dw1000_find_offset_in_broadcast(uint8_t* buffer,uint8_t * short_addr,int ele,int offset);
 int dw1000_copy_range_info(dw1000_t* dev, int index,uint8_t* buffer,int offset,uint64_t curr_ts);
+void dw1000_flush_buffer(dw1000_t* dev);
 #ifdef __cplusplus
 }
 #endif
