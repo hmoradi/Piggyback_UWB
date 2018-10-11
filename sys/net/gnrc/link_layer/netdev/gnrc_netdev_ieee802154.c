@@ -154,7 +154,7 @@ static gnrc_pktsnip_t *_recv(gnrc_netdev_t *gnrc_netdev)
         DEBUG("_recv_ieee802154: reallocating.\n");
         gnrc_pktbuf_realloc_data(pkt, nread);
     }
-    DEBUG("ieee 802 rec is done $$$$$$$$$$$$$$$$$ \r\n");
+    printf("ieee 802 rec is done $$$$$$$$$$$$$$$$$ \r\n");
     return pkt;
 }
 

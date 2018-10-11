@@ -36,12 +36,102 @@
 #include "dw1000_registers.h"
 #include "od.h"
 #include "random.h"
+#include "thread.h"
 #define ENABLE_DEBUG (0)
 #include "debug.h"
 #include "od.h"
 
 #pragma GCC optimize ("O3")
-//static uint8 CIR[1025] = {0};
+#define ID 0x05
+mutex_t mode_mtx = MUTEX_INIT;
+mutex_t auto_reply_mtx = MUTEX_INIT;
+
+static uint8_t _mode = 1;  //0 active ranging , 1 passive ranging
+char active_range_stack[THREAD_STACKSIZE_MAIN];
+char sched_stack[THREAD_STACKSIZE_MAIN];
+#define TIMEOUT         (5000UL * US_PER_MS)
+#define SCHED_TIMEOUT         (10000UL * US_PER_MS)
+#define RANGE_RATE 4  //4 packets per 10 seconds
+static bool auto_reply = FALSE;
+#define queue_len 10
+static dw1000_queue_item queue[10];
+static uint8_t write_index = 0;
+static uint8_t read_index = 0;
+static kernel_pid_t sched_pid;
+static kernel_pid_t act_rang_pid;
+static int data_packets = 0;
+static int range_packets = 0;
+static void time_evt(void *arg)
+{
+    thread_flags_set((thread_t *)arg, 0x1);
+}
+void* active_ranging(void* arg){
+    printf("active ranging thread is started \r\n");
+    xtimer_t timer;
+    timer.callback = time_evt;
+    timer.arg = (void *)sched_active_thread;
+    dw1000_t* dev = (dw1000_t*)arg;
+    //uint8_t state = 0; //0 send poll, 1 
+    while(TRUE){
+        mutex_lock(&mode_mtx);
+        if(_mode == 1){
+            mutex_unlock(&mode_mtx);
+            break;
+
+        }else{
+            mutex_unlock(&mode_mtx);
+            printf("sending in active ranging \r\n");
+            mutex_lock(&auto_reply_mtx);
+            auto_reply = TRUE;
+            mutex_unlock(&auto_reply_mtx);
+            dw1000_send(dev,NULL,0);
+            xtimer_set(&timer, TIMEOUT);
+            thread_flags_wait_any(0x1);
+        } 
+    }
+    printf("active ranging thread is exiting \r\n");
+    return NULL;
+}
+void* scheduler(void *arg){
+    //(void) arg;
+    printf("scheduler thread  starting \r\n");
+    xtimer_t timer;
+    timer.callback = time_evt;
+    timer.arg = (void *)sched_active_thread;
+    
+    dw1000_t* dev = arg; 
+    while(TRUE){
+        mutex_lock(&mode_mtx);
+        dev->datarate = data_packets;
+        //dev->rangrate = range_packets / SCHED_TIMEOUT;
+        data_packets = 0;
+        range_packets = 0;
+        printf("in scheduler data rate is %d and range rate is %d \r\n",dev->datarate,dev->rangrate);
+        if(dev->datarate >= dev->rangrate){ //passive ranging
+            printf("going to passive mode \r\n");
+            _mode = 1;
+        }else{ //active ranging
+            printf("going to active mode \r\n");
+            if(_mode == 1){
+               _mode = 0; 
+               act_rang_pid = thread_create(active_range_stack,
+                      sizeof(active_range_stack),
+                      THREAD_PRIORITY_MAIN - 1,
+                      THREAD_CREATE_STACKTEST,
+                      active_ranging,
+                      dev,
+                      "active_ranging");
+            }
+        }
+        mutex_unlock(&mode_mtx);
+        xtimer_set(&timer, SCHED_TIMEOUT);
+        thread_flags_wait_any(0x1);
+    }
+    
+    //printf("thread pid %d\n",pid );
+    printf("scheduler thread is exiting \r\n");
+    return NULL;
+}
 void dw1000_rxcallback(netdev_t *dev,const dwt_callback_data_t *rxd)
 {
     //if we got a frame with a good CRC - RX OK
@@ -57,8 +147,13 @@ void dw1000_rxcallback(netdev_t *dev,const dwt_callback_data_t *rxd)
         uint8_t last_rx_seq_nb = 0;
         uint8_t last_seq_nb = 0;
         uint8_t src_addr[2];
+        uint8_t ele = tmp[0] & 0x7F;
         src_addr[0] = tmp[1];
         src_addr[1] = tmp[2];
+        bool _auto = FALSE;
+        if(tmp[0] & 0x80)
+            _auto = TRUE;
+        
 
         dwt_readrxtimestamp(ts);
         uint64_t curr_ts = dw1000_convert_ts_to_int(ts);
@@ -70,15 +165,27 @@ void dw1000_rxcallback(netdev_t *dev,const dwt_callback_data_t *rxd)
         dw1000_extract_ranging_info((dw1000_t*)dev,tmp,0,src_addr,&Reply,&Delay,&last_tx_seq_nb,&last_rx_seq_nb,&last_seq_nb);
         dw1000_calc_dist((dw1000_t*)dev,src_addr,Reply,Delay,curr_ts,last_rx_seq_nb,last_tx_seq_nb);
         dw1000_update_ranging_info((dw1000_t*)dev,src_addr,curr_ts,last_seq_nb,last_tx_seq_nb);
+        if(ele*16+4 < rx_read_len()-2){
+            printf("packet has extra payload ^^^^^^^^^^^^^^^^^^^^^\r\n");
+            if(dev->event_callback) {
+                DEBUG("rx call back  calling netdev callback with rx complete \r\n");
 
-        if(dev->event_callback) {
-            DEBUG("rx call back  calling netdev callback with rx complete \r\n");
-
-            dev->event_callback(dev, NETDEV_EVENT_RX_COMPLETE);
+                dev->event_callback(dev, NETDEV_EVENT_RX_COMPLETE);
+            }
+            dw1000_set_state((dw1000_t *)dev, NETOPT_STATE_RX);
+        }else{
+            printf("just ranging packet (total len %d)do not send it up to network \r\n",rx_read_len()-2);
+            if(_auto){
+                mutex_lock(&auto_reply_mtx);
+                auto_reply = FALSE;
+                mutex_unlock(&auto_reply_mtx);
+                printf("packet has auto reply request \r\n");
+                dw1000_send((dw1000_t*)dev,NULL,0);
+            }
         }
     }
 
-    dw1000_set_state((dw1000_t *)dev, NETOPT_STATE_RX);
+    
 }
 #pragma GCC optimize ("O3")
 void dw1000_txcallback(netdev_t *dev,const dwt_callback_data_t *txd)
@@ -117,10 +224,11 @@ void dw1000_setup(dw1000_t * dev, const dw1000_params_t *params)
     dev->netdev.netdev.driver = &dw1000_driver;
     /* pull in device configuration parameters */
     memcpy(&dev->params, params, sizeof(dw1000_params_t));
-    //dev->state = DW1000_IDLE_MODE;
     /* reset device descriptor fields */
     dev->options = 0;
     dev->seq_nb = 0;
+    dev->datarate = 0;
+    dev->rangrate = RANGE_RATE;
     timex_t now;
     xtimer_now_timex(&now);
     dev->last_sec = now.seconds;
@@ -133,7 +241,7 @@ int dw1000_init(dw1000_t *dev)
     int result;
     DEBUG("dw1000 soft reset \r\n");
     dwt_softreset();
-    DEBUG("dw initizlie  \r\n");
+    DEBUG("dw initialize  \r\n");
     //this initialises DW1000 and uses specified configurations from OTP/ROM
     //result = dwt_initialise(dev,DWT_LOADUCODE | DWT_LOADLDOTUNE | DWT_LOADTXCONFIG | DWT_LOADANTDLY| DWT_LOADXTALTRIM) ;
     result = dwt_initialise(dev,DWT_LOADUCODE) ;
@@ -211,7 +319,7 @@ int dw1000_init(dw1000_t *dev)
     dw1000_get_addr_long(dev, device_addr); 
     memcpy(&addr[6],&device_addr[6],2);
     //addr[7] = (uint8_t)random_uint32();
-    addr[7] = 0x05;
+    addr[7] = ID;
     dw1000_set_addr_short(dev, &addr[6]);
     
     dw1000_set_addr_long(dev, addr);
@@ -227,89 +335,124 @@ int dw1000_init(dw1000_t *dev)
     //dw1000_set_option(dev, DW1000_OPT_TELL_TX_END, true);
     //dw1000_set_option(dev, DW1000_OPT_TELL_TX_START, false);
 
-#ifdef MODULE_NETSTATS_L2
-    dw1000_set_option(dev, DW1000_OPT_TELL_RX_END, true);
-#endif
-    /* set default protocol*/
-#ifdef MODULE_GNRC_SIXLOWPAN
-    dev->netdev.proto = GNRC_NETTYPE_SIXLOWPAN;
-#elif MODULE_GNRC
-    dev->netdev.proto = GNRC_NETTYPE_UNDEF;
-#endif
+    #ifdef MODULE_NETSTATS_L2
+        dw1000_set_option(dev, DW1000_OPT_TELL_RX_END, true);
+    #endif
+        /* set default protocol*/
+    #ifdef MODULE_GNRC_SIXLOWPAN
+        dev->netdev.proto = GNRC_NETTYPE_SIXLOWPAN;
+    #elif MODULE_GNRC
+        dev->netdev.proto = GNRC_NETTYPE_UNDEF;
+    #endif
     /* go into RX state */
     dw1000_set_state(dev, NETOPT_STATE_RX);
     ////
     puts("dw1000 init done! \r\n");
+    sched_pid = thread_create(sched_stack,
+                  sizeof(sched_stack),
+                  THREAD_PRIORITY_MAIN - 1,
+                  THREAD_CREATE_STACKTEST,
+                  scheduler,
+                  dev,
+                  "scheduler");
     return 0;
+
 }
 
 //ported
 size_t dw1000_send(dw1000_t *dev, const struct iovec *data, unsigned count)
 {
+    mutex_lock(&mode_mtx);
+    uint8_t local_mode = _mode;
+    mutex_unlock(&mode_mtx);
+    timex_t now;
+    xtimer_now_timex(&now);
+    if((local_mode == 0) && (count > 0)){ //active ranging and not ranging packet, just store it
+        int local_offset = 0;
+        //printf("in radio send number of iovec structs are %d \r\n",count);
+        for (int i = 0; i < count; i++) {
+            //printf("and size of iobase is %d \r\n",data[i].iov_len);
+            memcpy(&(queue[write_index].data[local_offset]), data[i].iov_base, data[i].iov_len);
+            local_offset += data[i].iov_len;
+        }
+        printf("in radio send: copy the message to queue at index %d with size %d \r\n",write_index,local_offset);
+        queue[write_index].seq_nb = dev->seq_nb;
+        queue[write_index].datalen = local_offset;
+        queue[write_index].time = now.seconds;
+        write_index = (write_index + 1) % queue_len;
+        dev->seq_nb ++;
+        data_packets ++;
+        return 0;    
+    }
+    
     size_t pkt_len = 0;
-    /* get and check the length of the packet */
+    uint8_t tmp[200]={0};
+    
     for (unsigned i = 0; i < count; i++) {
         pkt_len += data[i].iov_len;
     }
-    uint8 * tmp;
-    tmp = (uint8*) malloc(pkt_len);
-    if (tmp == 0){
-        puts("dw1000 send can not allocate memory \r\n");
-        return -1;
-    }
+
     unsigned offset = 0;
     uint8_t dest_addr[2] = {0xFF,0xFF};
     uint8_t src_addr[2];
     dw1000_get_addr_short(dev,src_addr);
+    
     //insert ranging info
     uint32_t tx_timestamp = dwt_readsystimestamphi32();
-    tx_timestamp += DELAY_TX_5;
+    tx_timestamp += DELAY_TX_10;
     uint64_t tx_timestamp_64 = tx_timestamp;
     tx_timestamp_64 = tx_timestamp_64 << 8;
-    
-    timex_t now;
-    xtimer_now_timex(&now);
     uint64_t sec_64 = now.seconds;
     tx_timestamp_64 |= sec_64 << 40;
-    offset = dw1000_insert_ranging_info(dev,tmp,offset,src_addr,dest_addr,tx_timestamp_64);
-    //printf("after inserting range info offset is at %d \r\n",offset);
-
+    
+    bool _auto = FALSE;
+    mutex_lock(&auto_reply_mtx);
+    _auto = auto_reply;
+    mutex_unlock(&auto_reply_mtx);
+    
+    offset = dw1000_insert_ranging_info(dev,tmp,offset,src_addr,dest_addr,tx_timestamp_64,_auto);
     dev->last_tx_ts[dev->seq_nb] = tx_timestamp_64;
     
-    //dw1000_update_ranging_info(dev,dest_addr,TRUE,tx_timestamp_64);
-    //
-
-    
-    for (int i = 0; i < count; i++) {
-        memcpy(&tmp[offset], data[i].iov_base, data[i].iov_len);
-        offset += data[i].iov_len;
-        DEBUG("iov len is %d \r\n",data[i].iov_len);
-        if (offset > 1024) {
-            puts("dw1000 send is called with size \r\n");
-            free(tmp);
-            return -1;
+    //printf("local mode is %d \r\n",local_mode);
+    if(local_mode == 1){ // passive ranging
+        //printf("in passive ranging copy the real message to send buffer \r\n");
+        for (int i = 0; i < count; i++) {
+            memcpy(&tmp[offset], data[i].iov_base, data[i].iov_len);
+            offset += data[i].iov_len;
+            DEBUG("iov len is %d \r\n",data[i].iov_len);
+            if (offset > 1024) {
+                printf("dw1000 send is called with over size %d \r\n",offset);
+                //free(tmp);
+                return -1;
+            }
+        }
+        data_packets ++;
+    }else{ //active ranging
+        if(read_index != write_index){
+            printf(" in radio send read from queued messages from index %d \r\n",read_index);
+            memcpy(&tmp[offset], queue[read_index].data, queue[read_index].datalen);
+            offset += queue[read_index].datalen;
+            read_index = (read_index + 1) % queue_len;
         }
     }
-    
+    printf("packet is ready to send with total length of %d  \r\n",offset);
     dwt_forcetrxoff();
-    dwt_writetxdata(offset+2, tmp, 0) ;
-    dwt_writetxfctrl(offset+2, 0);
-    
-    //dwt_setrxaftertxdelay(1) ;
-    //dwt_starttx(0); 
-
+    int res = 0;
+    res = dwt_writetxdata(offset+2, tmp, 0) ;
+    res = dwt_writetxfctrl(offset+2, 0);
     uint8_t tx_mode = DWT_START_TX_DELAYED | DWT_RESPONSE_EXPECTED;
     dwt_setdelayedtrxtime(tx_timestamp);
-    int res = dwt_starttx(tx_mode);
+    res = dwt_starttx(tx_mode);
+    
     if(res == DWT_ERROR){
         printf("send failed &&&&&&&&&&&&\r\n");
         dwt_forcetrxoff();
         dw1000_set_state(dev, NETOPT_STATE_RX);
     }
-    free(tmp);
+    //free(tmp);
     DEBUG("dw1000 send is issued  \r\n");
-    ((dw1000_t *)dev)->seq_nb ++;
-    printf("sent %d bytes of data \r\n",offset);
+    dev->seq_nb ++;
+    //printf("sent %d bytes of data and packet len  %d \r\n",offset,pkt_len);
     return offset;
 }
 
@@ -325,7 +468,7 @@ size_t dw1000_tx_prepare(dw1000_t *dev, const struct iovec *data, unsigned count
 //ported
 void dw1000_tx_exec(dw1000_t *dev)
 {
-    dwt_starttx(DWT_START_TX_IMMEDIATE);//todo mode need to be set for now is immediate send
+    dwt_starttx(DWT_START_TX_IMMEDIATE);
 }
 //ported
 int dw1000_rx(dw1000_t *dev, uint8_t *buf, size_t max_len, void *info)
@@ -337,18 +480,24 @@ int dw1000_rx(dw1000_t *dev, uint8_t *buf, size_t max_len, void *info)
         radio_info->rssi = 65; //ToDO: fix this later
     }
     if (buf == NULL) {
-        return rx_read_len()-2;
+        uint8_t tmp[200];
+        dwt_readrxdata(tmp, 2, 0);
+        uint8_t ele = tmp[0]&0x7F;
+        
+        uint8_t ind = 16*ele + 4;
+        return rx_read_len()-2-ind;
     }
     else {
         uint8_t tmp[200];
         dwt_readrxdata(tmp, max_len, 0);
-        int ele = tmp[0];
-        //printf("reading from %d for %d bytes\r\n",16*ele+4,max_len-(16*ele+4));
+        uint8_t ele = tmp[0]&0x7F;
+        
         uint8_t ind = 16*ele + 4;
+        printf("reading from %d for %d bytes\r\n",ind,max_len);
         if (ind > max_len){
             ind = 0;
         }
-        memcpy(buf,&tmp[ind],max_len-ind);
+        memcpy(buf,&tmp[ind],max_len);
         
     }
 
@@ -409,22 +558,22 @@ void dw1000_calc_dist(dw1000_t *dev,uint8_t * short_addr,uint64_t Reply_a,uint64
     uint64_t ToF = (Reply_a*Reply_b - Delay_b*Delay_a) / (Reply_a + Reply_b + Delay_a + Delay_b);
 
     
-    char out[17] = "----------------";
-    fmt_u64_hex(out, ToF);
+    // char out[17] = "----------------";
+    // fmt_u64_hex(out, ToF);
     //printf("measured ToF low: %lu\r\n",(uint32_t)ToF);
-    printf("ToF hex %s \r\n",out);
-    char Reply_a_s[17] = "----------------";
-    fmt_u64_hex(Reply_a_s, Reply_a);
-    printf("Reply_a hex %s \r\n",Reply_a_s);
-    char Reply_b_s[17] = "----------------";
-    fmt_u64_hex(Reply_b_s, Reply_b);
-    printf("Reply_b hex %s \r\n",Reply_b_s);
-    char Delay_a_s[17] = "----------------";
-    fmt_u64_hex(Delay_a_s, Delay_a);
-    printf("Delay_a hex %s \r\n",Delay_a_s);
-    char Delay_b_s[17] = "----------------";
-    fmt_u64_hex(Delay_b_s, Delay_b);
-    printf("Delay_b hex %s \r\n",Delay_b_s);
+    // printf("ToF hex %s \r\n",out);
+    // char Reply_a_s[17] = "----------------";
+    // fmt_u64_hex(Reply_a_s, Reply_a);
+    // printf("Reply_a hex %s \r\n",Reply_a_s);
+    // char Reply_b_s[17] = "----------------";
+    // fmt_u64_hex(Reply_b_s, Reply_b);
+    // printf("Reply_b hex %s \r\n",Reply_b_s);
+    // char Delay_a_s[17] = "----------------";
+    // fmt_u64_hex(Delay_a_s, Delay_a);
+    // printf("Delay_a hex %s \r\n",Delay_a_s);
+    // char Delay_b_s[17] = "----------------";
+    // fmt_u64_hex(Delay_b_s, Delay_b);
+    // printf("Delay_b hex %s \r\n",Delay_b_s);
     
 
     //TODO fix it later does not work for now
@@ -449,7 +598,7 @@ uint64_t dw1000_convert_ts_to_int(uint8_t* ts){
 }
 void dw1000_update_ranging_info(dw1000_t *dev,uint8_t * short_addr,uint64_t _time,uint8_t last_seq,uint8_t last_tx_seq){
     //printf("updating rang info \r\n");
-    printf("packet received form %x:%x \r\n",short_addr[0],short_addr[1]);
+    //printf("packet received form %x:%x \r\n",short_addr[0],short_addr[1]);
     int index = dw1000_find_ranging_info(dev,short_addr);
     if(index >= 0){  
         //printf("updating old entry at index %d \r\n",index);  
@@ -486,42 +635,41 @@ uint64_t dw1000_calc_time_diff(uint64_t a,uint64_t b){
     }
     return diff;
 }
-int dw1000_insert_ranging_info(dw1000_t* dev,uint8_t* buffer,int offset,uint8_t* src_addr,uint8_t* dest_addr,uint64_t curr_ts){
+int dw1000_insert_ranging_info(dw1000_t* dev,uint8_t* buffer,int offset,uint8_t* src_addr,uint8_t* dest_addr,uint64_t curr_ts,bool _auto_reply){
     //printf("inserting range info at offset %d \r\n",offset);
     buffer[offset] = 0;
     buffer[offset+1]= src_addr[0];
     buffer[offset+2]= src_addr[1];
     buffer[offset+3]= dev->seq_nb;
-    printf("sending data from %x:%x with seq nb %d\r\n",src_addr[0],src_addr[1],dev->seq_nb);
+    //printf("inserting data from %x:%x with seq nb %d\r\n",src_addr[0],src_addr[1],dev->seq_nb);
     uint8_t old_offset = offset;
     offset += 4;
     if(dest_addr[0]==0xFF && dest_addr[1]==0xFF){
-        //printf("in broadcast mode \r\n");
-        //offset +=4;
         uint8_t ele = 0;
         for (int i=0;i<Num_Elements;i++){
             if(dev->ranging_info_array[i].short_addr[0] == 0x11 && dev->ranging_info_array[i].short_addr[1] == 0x11){
                 continue;
-            }else{
-                //printf("copy range info at broadcast to dest %x:%x \r\n",dev->ranging_info_array[i].short_addr[0],dev->ranging_info_array[i].short_addr[1]);
+            }else{                
                 offset = dw1000_copy_range_info(dev, i,buffer,offset,curr_ts);
                 ele ++;
             }
         }
         buffer[old_offset] = ele;
     }else{
-        
         int index  = dw1000_find_ranging_info(dev,dest_addr);    
         if (index >= 0){
             buffer[old_offset] = 1;
-            //printf("copy range info at unicast \r\n");
             offset = dw1000_copy_range_info(dev, index,buffer,offset,curr_ts);   
         }
     }
+    if(_auto_reply){
+        buffer[old_offset] |= 0x80; 
+    }
+    //printf("inserting is done and the len is %d \r\n",offset);
     return offset;
 }
 int dw1000_copy_range_info(dw1000_t* dev, int index,uint8_t* buffer,int offset,uint64_t curr_ts){
-    printf("copy range info to dest of %x:%x \r\n",dev->ranging_info_array[index].short_addr[0],dev->ranging_info_array[index].short_addr[1]);
+    //printf("copy range info to dest of %x:%x \r\n",dev->ranging_info_array[index].short_addr[0],dev->ranging_info_array[index].short_addr[1]);
     uint64_t Reply = 0;
     uint64_t Delay = 0;
     uint8_t last_tx_seq_nb = -1;
@@ -576,17 +724,17 @@ void dw1000_extract_ranging_info(dw1000_t* dev,uint8_t* buffer,int offset,uint8_
     uint8_t _last_tx_seq_nb = -1;
     uint8_t _rx_seq_nb = -1;
     
-    int ele = buffer[offset];
+    int ele = buffer[offset] & 0x7F;
     short_addr[0] = buffer[offset+1];
     short_addr[1] = buffer[offset+2];
     _rx_seq_nb = buffer[offset+3];
     offset += 4;
-    printf("extracting rang info \r\n");
+    //printf("extracting rang info \r\n");
     uint8_t my_addr[2];
     dw1000_get_addr_short(dev,my_addr);
     offset = dw1000_find_offset_in_broadcast(buffer,my_addr,ele,offset);
     if(offset >= 0){
-        printf("find my address in rec packet \r\n");
+        //printf("find my address in rec packet \r\n");
         offset +=2;
         _last_rx_seq_nb = buffer[offset];
         _last_tx_seq_nb = buffer[offset+1];
@@ -611,6 +759,6 @@ void dw1000_extract_ranging_info(dw1000_t* dev,uint8_t* buffer,int offset,uint8_
     *last_rx_seq_nb = _last_rx_seq_nb;
     *last_tx_seq_nb = _last_tx_seq_nb;
     *rx_seq_nb = _rx_seq_nb;
-    printf("extracted rang info last rx %d last tx %d and seq %d \r\n",_last_rx_seq_nb,_last_tx_seq_nb,_rx_seq_nb);
+    //printf("extracted rang info last rx %d last tx %d and seq %d \r\n",_last_rx_seq_nb,_last_tx_seq_nb,_rx_seq_nb);
     return;
 }

@@ -19,9 +19,9 @@ USEMODULE += gnrc_icmpv6_echo
 USEMODULE += shell
 USEMODULE += shell_commands
 USEMODULE += ps
-#USEMODULE += netstats_l2
-#USEMODULE += netstats_ipv6
-
+USEMODULE += netstats_l2
+USEMODULE += netstats_ipv6
+USEMODULE += core_thread_flags
 CFLAGS += -DDEVELHELP
 
 include $(RIOTBASE)/Makefile.include
