@@ -168,7 +168,7 @@ typedef struct {
 
 typedef struct {
     uint8_t seq_nb;
-    uint32_t time;
+    float time;
     uint8_t datalen;
     uint8_t data[100];
 } dw1000_queue_item;

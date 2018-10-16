@@ -37,12 +37,14 @@
 #include "od.h"
 #include "random.h"
 #include "thread.h"
+#include "timex.h"
+#include "xtimer.h"
 #define ENABLE_DEBUG (0)
 #include "debug.h"
 #include "od.h"
 
 #pragma GCC optimize ("O3")
-#define ID 0x05
+#define ID 0x0A
 mutex_t mode_mtx = MUTEX_INIT;
 mutex_t auto_reply_mtx = MUTEX_INIT;
 
@@ -190,7 +192,7 @@ void dw1000_rxcallback(netdev_t *dev,const dwt_callback_data_t *rxd)
         dw1000_calc_dist((dw1000_t*)dev,src_addr,Reply,Delay,curr_ts,last_rx_seq_nb,last_tx_seq_nb);
         dw1000_update_ranging_info((dw1000_t*)dev,src_addr,curr_ts,last_seq_nb,last_tx_seq_nb);
         if(ele*16+4 < ((dw1000_t*)dev)->rec_len){
-            //printf("packet has extra payload ^^^^^^^^^^^^^^^^^^^^^\r\n");
+            printf("packet has extra payload ^^^^^^^^^^^^^^^^^^^^^\r\n");
             if(dev->event_callback) {
                 DEBUG("rx call back  calling netdev callback with rx complete \r\n");
 
@@ -389,6 +391,7 @@ int dw1000_init(dw1000_t *dev)
 size_t dw1000_send(dw1000_t *dev, const struct iovec *data, unsigned count)
 {
     send_busy = TRUE;
+    float delay = 0;
     mutex_lock(&mode_mtx);
     uint8_t local_mode = _mode;
     mutex_unlock(&mode_mtx);
@@ -406,7 +409,7 @@ size_t dw1000_send(dw1000_t *dev, const struct iovec *data, unsigned count)
         //od_hex_dump(queue[write_index].data, local_offset, OD_WIDTH_DEFAULT);
         queue[write_index].seq_nb = dev->seq_nb;
         queue[write_index].datalen = local_offset;
-        queue[write_index].time = now.seconds;
+        queue[write_index].time = now.seconds + (now.microseconds / 1000000.0);
         write_index = (write_index + 1) % queue_len;
         dev->seq_nb ++;
         dev->data_packets ++;
@@ -428,7 +431,7 @@ size_t dw1000_send(dw1000_t *dev, const struct iovec *data, unsigned count)
     
     //insert ranging info
     uint32_t tx_timestamp = dwt_readsystimestamphi32();
-    tx_timestamp += DELAY_TX_10;
+    tx_timestamp += DELAY_TX_20;
     uint64_t tx_timestamp_64 = tx_timestamp;
     tx_timestamp_64 = tx_timestamp_64 << 8;
     uint64_t sec_64 = now.seconds;
@@ -448,6 +451,7 @@ size_t dw1000_send(dw1000_t *dev, const struct iovec *data, unsigned count)
         for (int i = 0; i < count; i++) {
             memcpy(&tmp[offset], data[i].iov_base, data[i].iov_len);
             offset += data[i].iov_len;
+
             DEBUG("iov len is %d \r\n",data[i].iov_len);
             if (offset > 1024) {
                 printf("dw1000 send is called with over size %d \r\n",offset);
@@ -462,11 +466,17 @@ size_t dw1000_send(dw1000_t *dev, const struct iovec *data, unsigned count)
             //printf(" in radio send read from queued messages from index %d \r\n",read_index);
             memcpy(&tmp[offset], queue[read_index].data, queue[read_index].datalen);
             offset += queue[read_index].datalen;
-            //od_hex_dump(tmp, offset, OD_WIDTH_DEFAULT);
+            timex_t now_tmp;
+            xtimer_now_timex(&now_tmp);
+            delay  = now_tmp.seconds + (now_tmp.microseconds / 1000000.0) - queue[read_index].time;
             read_index = (read_index + 1) % queue_len;
+            
         }
     }
-    printf("packet is ready to send with total length of %d  \r\n",offset);
+    char buf_time[19];
+    fmt_float(buf_time, delay, 3);
+    printf("packet is ready to send with total length of %d  and delay %s \r\n",offset,buf_time);
+    
     dwt_forcetrxoff();
     int res = 0;
     res = dwt_writetxdata(offset+2, tmp, 0) ;
@@ -485,6 +495,7 @@ size_t dw1000_send(dw1000_t *dev, const struct iovec *data, unsigned count)
     DEBUG("dw1000 send is issued  \r\n");
     dev->seq_nb ++;
     //printf("sent %d bytes of data and packet len  %d \r\n",offset,pkt_len);
+    
     return offset;
 }
 

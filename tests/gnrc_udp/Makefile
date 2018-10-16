@@ -22,6 +22,7 @@ USEMODULE += ps
 #USEMODULE += netstats_l2
 #USEMODULE += netstats_ipv6
 USEMODULE += core_thread_flags
+USEMODULE += timex
 CFLAGS += -DDEVELHELP
 
 include $(RIOTBASE)/Makefile.include

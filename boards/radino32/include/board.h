@@ -58,7 +58,7 @@ void board_init(void);
  * @{
  */
 #ifndef UART_STDIO_BAUDRATE
-#   define UART_STDIO_BAUDRATE (1000000U)
+#   define UART_STDIO_BAUDRATE (115200U)
 #endif
 /** @} */
 
