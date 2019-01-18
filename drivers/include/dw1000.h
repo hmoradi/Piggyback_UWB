@@ -194,7 +194,7 @@ typedef struct {
     uint8_t rangrate;
     uint8_t data_packets;
     uint8_t range_packets;
-    uint8_t rec_buff[100];
+    uint8_t rec_buff[160];
     uint8_t rec_len ;
 } dw1000_t;
 

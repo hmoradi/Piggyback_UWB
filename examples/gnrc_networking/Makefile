@@ -26,7 +26,7 @@ USEMODULE += auto_init_gnrc_rpl
 # This application dumps received packets to STDIO using the pktdump module
 USEMODULE += gnrc_pktdump
 # Additional networking modules that can be dropped if not needed
-USEMODULE += gnrc_icmpv6_echo
+# USEMODULE += gnrc_icmpv6_echo
 # Add also the shell, some shell commands
 USEMODULE += shell
 USEMODULE += shell_commands
@@ -34,7 +34,10 @@ USEMODULE += ps
 USEMODULE += netstats_l2
 USEMODULE += netstats_ipv6
 USEMODULE += netstats_rpl
-
+USEMODULE += core_thread_flags
+USEMODULE += timex
+USEMODULE += gnrc_rpl_p2p
+# USEMODULE += od
 # Comment this out to disable code in RIOT that does safety checking
 # which is not needed in a production environment but helps in the
 # development process:

@@ -4,7 +4,7 @@ PKG_VERSION=fbfd76a990b81f007957e1bd774e51bce742e53e
 PKG_BUILDDIR ?= $(BINDIRBASE)/pkg/$(BOARD)/$(PKG_NAME)
 
 $(info Compile OpenThread for FTD device)
-OPENTHREAD_ARGS+= --enable-cli-app=ftd --enable-application-coap
+OPENTHREAD_ARGS+= --enable-cli-app=ftd --enable-raw-link-api
 
 $(info $$OPENTHREAD_ARGS is [${OPENTHREAD_ARGS}])
 
@@ -22,7 +22,7 @@ all: git-download
 		LDFLAGS="$(OPENTHREAD_COMMON_FLAGS) $(CFLAGS_CPU) -nostartfiles -specs=nano.specs \
 		-specs=nosys.specs -Wl,--gc-sections -Wl,-Map=map.map " \
 		./configure --disable-docs --host=$(TARGET_ARCH) --target=$(TARGET_ARCH) \
-		--prefix=/ --enable-default-logging ${OPENTHREAD_ARGS}
+		--prefix=/ --disable-default-logging ${OPENTHREAD_ARGS}
 	cd $(PKG_BUILDDIR) &&  DESTDIR=$(PKG_BUILDDIR)/output PREFIX=/ make -j4 --no-print-directory install
 
 	cp $(PKG_BUILDDIR)/output/lib/libmbedcrypto.a ${BINDIR}/libmbedcrypto.a

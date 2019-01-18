@@ -34,17 +34,17 @@
 #include "dw1000_internal.h"
 #include "dw1000_netdev.h"
 #include "dw1000_registers.h"
-#include "od.h"
+//#include "od.h"
 #include "random.h"
 #include "thread.h"
 #include "timex.h"
 #include "xtimer.h"
 #define ENABLE_DEBUG (0)
 #include "debug.h"
-#include "od.h"
+//#include "od.h"
 
 #pragma GCC optimize ("O3")
-#define ID 0x0A
+#define ID 0x08
 mutex_t mode_mtx = MUTEX_INIT;
 mutex_t auto_reply_mtx = MUTEX_INIT;
 
@@ -53,10 +53,10 @@ char active_range_stack[THREAD_STACKSIZE_MAIN];
 char sched_stack[THREAD_STACKSIZE_MAIN];
 #define TIMEOUT         (5000UL * US_PER_MS)
 #define SCHED_TIMEOUT         (10000UL * US_PER_MS)
-#define RANGE_RATE 4  //4 packets per 10 seconds
+#define RANGE_RATE 0  //4 packets per 10 seconds
 static bool auto_reply = FALSE;
-#define queue_len 10
-static dw1000_queue_item queue[10];
+#define queue_len 3
+static dw1000_queue_item queue[3];
 static uint8_t write_index = 0;
 static uint8_t read_index = 0;
 static kernel_pid_t sched_pid;
@@ -65,6 +65,7 @@ static bool send_busy = FALSE;
 static void time_evt(void *arg)
 {
     thread_flags_set((thread_t *)arg, 0x1);
+
 }
 void* active_ranging(void* arg){
     printf("active ranging thread is started \r\n");
@@ -160,9 +161,9 @@ void dw1000_rxcallback(netdev_t *dev,const dwt_callback_data_t *rxd)
     {    
         uint8_t ts[5];
         //uint8_t tmp[200];
-        dwt_readrxdata(((dw1000_t*)dev)->rec_buff, 100, 0);
+        dwt_readrxdata(((dw1000_t*)dev)->rec_buff, 150, 0);
         //printf("rec data at rx callback \r\n");
-        //od_hex_dump(rec_buff, 60, OD_WIDTH_DEFAULT);
+        //od_hex_dump(((dw1000_t*)dev)->rec_buff, 120, OD_WIDTH_DEFAULT);
 
         uint64_t Reply = 0;
         uint64_t Delay = 0;
@@ -210,6 +211,9 @@ void dw1000_rxcallback(netdev_t *dev,const dwt_callback_data_t *rxd)
                 dw1000_send((dw1000_t*)dev,NULL,0);
             }
         }
+    }else{
+        dwt_forcetrxoff();
+        dw1000_set_state((dw1000_t *)dev, NETOPT_STATE_RX);
     }
 
     
@@ -319,8 +323,8 @@ int dw1000_init(dw1000_t *dev)
    // configData.rxPAC = DWT_PAC32 ;
     configData.rxPAC = DWT_PAC8;
     configData.nsSFD = 0 ;
-    configData.phrMode = DWT_PHRMODE_STD ;
-    //configData.phrMode = DWT_PHRMODE_EXT ;
+    //configData.phrMode = DWT_PHRMODE_STD ;
+    configData.phrMode = DWT_PHRMODE_EXT ;
     configData.sfdTO = (1025 + 64 - 32);
     //configData.sfdTO = (129 + 8 - 8);
     //dwt_configure(&configData, DWT_LOADXTALTRIM) ;
@@ -431,7 +435,7 @@ size_t dw1000_send(dw1000_t *dev, const struct iovec *data, unsigned count)
     
     //insert ranging info
     uint32_t tx_timestamp = dwt_readsystimestamphi32();
-    tx_timestamp += DELAY_TX_20;
+    tx_timestamp += DELAY_TX_100;
     uint64_t tx_timestamp_64 = tx_timestamp;
     tx_timestamp_64 = tx_timestamp_64 << 8;
     uint64_t sec_64 = now.seconds;
@@ -473,14 +477,20 @@ size_t dw1000_send(dw1000_t *dev, const struct iovec *data, unsigned count)
             
         }
     }
+    if(delay == 5)
+        delay = 4;
     char buf_time[19];
     fmt_float(buf_time, delay, 3);
     printf("packet is ready to send with total length of %d  and delay %s \r\n",offset,buf_time);
-    
+    //od_hex_dump(tmp, offset, OD_WIDTH_DEFAULT);
     dwt_forcetrxoff();
     int res = 0;
     res = dwt_writetxdata(offset+2, tmp, 0) ;
+    if(res==DWT_ERROR)
+        printf("send failed -> write data &&&&&&&&&&&&\r\n");
     res = dwt_writetxfctrl(offset+2, 0);
+    if(res==DWT_ERROR)
+        printf("send failed -> write ctrl &&&&&&&&&&&&\r\n");
     uint8_t tx_mode = DWT_START_TX_DELAYED | DWT_RESPONSE_EXPECTED;
     dwt_setdelayedtrxtime(tx_timestamp);
     res = dwt_starttx(tx_mode);

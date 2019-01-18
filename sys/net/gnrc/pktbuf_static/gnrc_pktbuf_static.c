@@ -43,6 +43,8 @@ typedef struct _unused {
 
 static mutex_t _mutex = MUTEX_INIT;
 static uint8_t _pktbuf[GNRC_PKTBUF_SIZE];
+
+
 static _unused_t *_first_unused;
 
 #ifdef DEVELHELP

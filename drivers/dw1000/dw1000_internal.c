@@ -46,7 +46,7 @@
 #define FORCE_OTP_OFF  12
 #define FORCE_TX_PLL   13
 
-// #define DWT_API_ERROR_CHECK     // define so API checks config input parameters
+#define DWT_API_ERROR_CHECK     // define so API checks config input parameters
 
 // -------------------------------------------------------------------------------------------------------------------
 //
