@@ -36,13 +36,14 @@ USEMODULE += netstats_ipv6
 USEMODULE += netstats_rpl
 USEMODULE += core_thread_flags
 USEMODULE += timex
-USEMODULE += gnrc_rpl_p2p
+# USEMODULE += gnrc_rpl_p2p
 # USEMODULE += od
 # Comment this out to disable code in RIOT that does safety checking
 # which is not needed in a production environment but helps in the
 # development process:
 CFLAGS += -DDEVELHELP
 CFLAGS += -DGNRC_RPL_DEFAULT_NETIF=7
+CFLAGS += -DGNRC_RPL_DEFAULT_DIO_INTERVAL_MIN=8
 # Uncomment the following 2 lines to specify static link lokal IPv6 address
 # this might be useful for testing, in cases where you cannot or do not want to
 # run a shell with ifconfig to get the real link lokal address.
@@ -51,7 +52,7 @@ CFLAGS += -DGNRC_RPL_DEFAULT_NETIF=7
 
 # Uncomment this to join RPL DODAGs even if DIOs do not contain
 # DODAG Configuration Options (see the doc for more info)
-# CFLAGS += -DGNRC_RPL_DODAG_CONF_OPTIONAL_ON_JOIN
+CFLAGS += -DGNRC_RPL_DODAG_CONF_OPTIONAL_ON_JOIN
 
 # Change this to 0 show compiler invocation lines by default:
 QUIET ?= 1
