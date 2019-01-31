@@ -25,7 +25,7 @@ extern "C" {
 
 #include "net/rpl/rpl_netstats.h"
 
-#define ENABLE_DEBUG    (0)
+#define ENABLE_DEBUG    (1)
 #include "debug.h"
 
 #define GNRC_RPL_NETSTATS_MULTICAST (0)

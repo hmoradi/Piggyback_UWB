@@ -38,7 +38,7 @@
 #include "net/gnrc/rpl/p2p.h"
 #endif
 
-#define ENABLE_DEBUG    (0)
+#define ENABLE_DEBUG (1)
 #include "debug.h"
 
 #if ENABLE_DEBUG
@@ -56,6 +56,7 @@ static char addr_str[IPV6_ADDR_MAX_STR_LEN];
 void gnrc_rpl_send(gnrc_pktsnip_t *pkt, kernel_pid_t iface, ipv6_addr_t *src, ipv6_addr_t *dst,
                    ipv6_addr_t *dodag_id)
 {
+    printf("RPL: sending out a packet \r\n");
     (void)dodag_id;
     gnrc_pktsnip_t *hdr;
     if (iface == KERNEL_PID_UNDEF) {
@@ -156,6 +157,7 @@ gnrc_pktsnip_t *_dio_prefix_info_build(gnrc_pktsnip_t *pkt, gnrc_rpl_dodag_t *do
 
 void gnrc_rpl_send_DIO(gnrc_rpl_instance_t *inst, ipv6_addr_t *destination)
 {
+    printf("RPL: sending DIO \r\n");
     if (inst == NULL) {
         DEBUG("RPL: Error - trying to send DIO without being part of a dodag.\n");
         return;
@@ -180,13 +182,16 @@ void gnrc_rpl_send_DIO(gnrc_rpl_instance_t *inst, ipv6_addr_t *destination)
 #ifndef GNRC_RPL_WITHOUT_PIO
     if (dodag->dio_opts & GNRC_RPL_REQ_DIO_OPT_PREFIX_INFO) {
         if ((pkt = _dio_prefix_info_build(pkt, dodag)) == NULL) {
+            DEBUG("RPL: failed to send DIO to prefix info \r\n");
             return;
         }
     }
 #endif
 
     if (dodag->dio_opts & GNRC_RPL_REQ_DIO_OPT_DODAG_CONF) {
+        DEBUG("RPL: Sending dodag conf in DIO \r\n");
         if ((pkt = _dio_dodag_conf_build(pkt, dodag)) == NULL) {
+            DEBUG("RPL: failed to send DIO to dio opt dodag conf \r\n");
             return;
         }
         dodag->dio_opts &= ~GNRC_RPL_REQ_DIO_OPT_DODAG_CONF;
@@ -229,6 +234,7 @@ void gnrc_rpl_send_DIO(gnrc_rpl_instance_t *inst, ipv6_addr_t *destination)
 
 void gnrc_rpl_send_DIS(gnrc_rpl_instance_t *inst, ipv6_addr_t *destination)
 {
+    printf("RPL: Sending DIS \r\n");
     gnrc_pktsnip_t *pkt;
     icmpv6_hdr_t *icmp;
     gnrc_rpl_dis_t *dis;
@@ -266,6 +272,7 @@ void gnrc_rpl_send_DIS(gnrc_rpl_instance_t *inst, ipv6_addr_t *destination)
 void gnrc_rpl_recv_DIS(gnrc_rpl_dis_t *dis, kernel_pid_t iface, ipv6_addr_t *src,
                        ipv6_addr_t *dst, uint16_t len)
 {
+    printf("RPL : recv DIS \r\n");
     /* TODO handle Solicited Information Option */
     (void)iface;
     (void)dis;
@@ -310,6 +317,7 @@ void gnrc_rpl_recv_DIS(gnrc_rpl_dis_t *dis, kernel_pid_t iface, ipv6_addr_t *src
 bool _parse_options(int msg_type, gnrc_rpl_instance_t *inst, gnrc_rpl_opt_t *opt, uint16_t len,
                     ipv6_addr_t *src, uint32_t *included_opts)
 {
+    DEBUG("RPL: parsing message \r\n");
     uint16_t l = 0;
     gnrc_rpl_opt_target_t *first_target = NULL;
     gnrc_rpl_dodag_t *dodag = &inst->dodag;
@@ -365,7 +373,7 @@ bool _parse_options(int msg_type, gnrc_rpl_instance_t *inst, gnrc_rpl_opt_t *opt
                 break;
 
             case (GNRC_RPL_OPT_PREFIX_INFO):
-                DEBUG("RPL: Prefix Information DIO option parsed\n");
+                DEBUG("RPL: Prefix Information DIO option parsed\r\n");
                 *included_opts |= ((uint32_t) 1) << GNRC_RPL_OPT_PREFIX_INFO;
 #ifndef GNRC_RPL_WITHOUT_PIO
                 dodag->dio_opts |= GNRC_RPL_REQ_DIO_OPT_PREFIX_INFO;
@@ -404,6 +412,7 @@ bool _parse_options(int msg_type, gnrc_rpl_instance_t *inst, gnrc_rpl_opt_t *opt
                       target->prefix_length,
                       fib_dst_flags);
 
+                //commented out by hessam
                 fib_add_entry(&gnrc_ipv6_fib_table, dodag->iface, target->target.u8,
                               sizeof(ipv6_addr_t), fib_dst_flags, src->u8,
                               sizeof(ipv6_addr_t), FIB_FLAG_RPL_ROUTE,
@@ -457,6 +466,7 @@ bool _parse_options(int msg_type, gnrc_rpl_instance_t *inst, gnrc_rpl_opt_t *opt
 void gnrc_rpl_recv_DIO(gnrc_rpl_dio_t *dio, kernel_pid_t iface, ipv6_addr_t *src, ipv6_addr_t *dst,
                        uint16_t len)
 {
+    printf("RPL: recv DIO \r\n");
     (void) dst;
     gnrc_rpl_instance_t *inst = NULL;
     gnrc_rpl_dodag_t *dodag = NULL;
@@ -536,7 +546,7 @@ void gnrc_rpl_recv_DIO(gnrc_rpl_dio_t *dio, kernel_pid_t iface, ipv6_addr_t *src
             ipv6_addr_t *configured_addr;
 
             if (!(configured_addr = gnrc_ipv6_netif_match_prefix(dodag->iface, &dodag->dodag_id))) {
-                DEBUG("RPL: no IPv6 address configured to match the given dodag id: %s\n",
+                printf("RPL: no IPv6 address configured to match the given dodag id: %s\n",
                       ipv6_addr_to_str(addr_str, &(dodag->dodag_id), sizeof(addr_str)));
                 gnrc_rpl_instance_remove(inst);
                 return;
@@ -699,6 +709,7 @@ gnrc_pktsnip_t *_dao_transit_build(gnrc_pktsnip_t *pkt, uint8_t lifetime, bool e
 
 void gnrc_rpl_send_DAO(gnrc_rpl_instance_t *inst, ipv6_addr_t *destination, uint8_t lifetime)
 {
+    printf("RPL : sendin DAO \r\n");
     gnrc_rpl_dodag_t *dodag;
 
     if (inst == NULL) {
@@ -709,6 +720,7 @@ void gnrc_rpl_send_DAO(gnrc_rpl_instance_t *inst, ipv6_addr_t *destination, uint
     dodag = &inst->dodag;
 
     if (dodag->node_status == GNRC_RPL_ROOT_NODE) {
+        DEBUG("RPL: In root, Not sending DAO\r\n");
         return;
     }
 
@@ -856,6 +868,7 @@ void gnrc_rpl_send_DAO(gnrc_rpl_instance_t *inst, ipv6_addr_t *destination, uint
 
 void gnrc_rpl_send_DAO_ACK(gnrc_rpl_instance_t *inst, ipv6_addr_t *destination, uint8_t seq)
 {
+    printf("RPL: send DAO ACK \r\n");
     gnrc_rpl_dodag_t *dodag = NULL;
 
     if (inst == NULL) {
@@ -907,6 +920,7 @@ void gnrc_rpl_send_DAO_ACK(gnrc_rpl_instance_t *inst, ipv6_addr_t *destination, 
 void gnrc_rpl_recv_DAO(gnrc_rpl_dao_t *dao, kernel_pid_t iface, ipv6_addr_t *src, ipv6_addr_t *dst,
                        uint16_t len)
 {
+    printf("RPL recv DAO \r\n");
     (void)iface;
     (void)dst;
 
@@ -947,6 +961,7 @@ void gnrc_rpl_recv_DAO(gnrc_rpl_dao_t *dao, kernel_pid_t iface, ipv6_addr_t *src
 
     /* a leaf node should not parse DAOs */
     if (dodag->node_status == GNRC_RPL_LEAF_NODE) {
+        DEBUG("RPL: Leaf Node not parsing DAO \r\n ");
         return;
     }
 
@@ -973,6 +988,7 @@ void gnrc_rpl_recv_DAO(gnrc_rpl_dao_t *dao, kernel_pid_t iface, ipv6_addr_t *src
 void gnrc_rpl_recv_DAO_ACK(gnrc_rpl_dao_ack_t *dao_ack, kernel_pid_t iface, ipv6_addr_t *src,
                            ipv6_addr_t *dst, uint16_t len)
 {
+    printf("RPL: recv DAO ACK \r\n");
     (void)iface;
     (void)src;
     (void)dst;

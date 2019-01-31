@@ -26,7 +26,7 @@ extern "C" {
 #include "net/gnrc/rpl/structs.h"
 #include "net/gnrc/icmpv6.h"
 
-#define ENABLE_DEBUG    (0)
+#define ENABLE_DEBUG    (1)
 #include "debug.h"
 
 /**

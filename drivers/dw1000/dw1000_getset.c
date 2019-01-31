@@ -109,7 +109,7 @@ int16_t dw1000_get_txpower(dw1000_t *dev)
     return 0;
 }
 
-void dw1000_set_txpower(dw1000_t *dev, int16_t txpower)
+void dw1000_set_txpower(dw1000_t *dev, uint32_t txpower)
 {
 //    if (txpower > DW1000_TXPOWER_MAX) {
 //        txpower = DW1000_TXPOWER_MAX;

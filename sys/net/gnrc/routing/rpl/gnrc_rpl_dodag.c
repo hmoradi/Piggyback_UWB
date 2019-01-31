@@ -29,7 +29,7 @@
 #include "net/gnrc/rpl/p2p_dodag.h"
 #endif
 
-#define ENABLE_DEBUG    (0)
+#define ENABLE_DEBUG    (1)
 #include "debug.h"
 
 #if ENABLE_DEBUG
@@ -40,6 +40,7 @@ static gnrc_rpl_parent_t *_gnrc_rpl_find_preferred_parent(gnrc_rpl_dodag_t *doda
 
 static void _rpl_trickle_send_dio(void *args)
 {
+    DEBUG("RPL trickle sending dio \r\n");
     gnrc_rpl_instance_t *inst = (gnrc_rpl_instance_t *) args;
     gnrc_rpl_dodag_t *dodag = &inst->dodag;
 
@@ -60,7 +61,7 @@ static void _rpl_trickle_send_dio(void *args)
 #endif
 
     gnrc_rpl_send_DIO(inst, (ipv6_addr_t *) &ipv6_addr_all_rpl_nodes);
-    DEBUG("trickle callback: Instance (%d) | DODAG: (%s)\n", inst->id,
+    DEBUG("trickle callback: Instance (%d) | DODAG: (%s)\r\n", inst->id,
           ipv6_addr_to_str(addr_str,&dodag->dodag_id, sizeof(addr_str)));
 }
 
@@ -76,7 +77,7 @@ bool gnrc_rpl_instance_add(uint8_t instance_id, gnrc_rpl_instance_t **inst)
             continue;
         }
         else if ((gnrc_rpl_instances[i].state != 0) && (gnrc_rpl_instances[i].id == instance_id)) {
-            DEBUG("Instance with id %d exists\n", instance_id);
+            DEBUG("Instance with id %d exists\r\n", instance_id);
             *inst = &gnrc_rpl_instances[i];
             return false;
         }
@@ -92,7 +93,7 @@ bool gnrc_rpl_instance_add(uint8_t instance_id, gnrc_rpl_instance_t **inst)
     }
 
     /* no space available to allocate a new instance */
-    DEBUG("Could not allocate a new RPL instance\n");
+    DEBUG("Could not allocate a new RPL instance\r\n");
     *inst = NULL;
     return false;
 }
@@ -224,6 +225,7 @@ bool gnrc_rpl_parent_remove(gnrc_rpl_parent_t *parent)
 
         /* set the default route to the next parent for now */
         if (parent->next) {
+            //commented out by hessam
             uint32_t now = xtimer_now_usec() / US_PER_SEC;
             fib_add_entry(&gnrc_ipv6_fib_table,
                           dodag->iface,
@@ -270,6 +272,7 @@ void gnrc_rpl_parent_update(gnrc_rpl_dodag_t *dodag, gnrc_rpl_parent_t *parent)
         if (dodag->instance->mop != GNRC_RPL_P2P_MOP) {
 #endif
         if (parent == dodag->parents) {
+            //commented out by hessam
             fib_add_entry(&gnrc_ipv6_fib_table,
                           dodag->iface,
                           (uint8_t *) ipv6_addr_unspecified.u8,
@@ -330,6 +333,7 @@ static gnrc_rpl_parent_t *_gnrc_rpl_find_preferred_parent(gnrc_rpl_dodag_t *doda
 #ifdef MODULE_GNRC_RPL_P2P
     if (dodag->instance->mop != GNRC_RPL_P2P_MOP) {
 #endif
+        //commented out by hessam
         fib_add_entry(&gnrc_ipv6_fib_table,
                       dodag->iface,
                       (uint8_t *) ipv6_addr_unspecified.u8,

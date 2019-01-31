@@ -39,12 +39,13 @@
 #include "thread.h"
 #include "timex.h"
 #include "xtimer.h"
-#define ENABLE_DEBUG (0)
+#define DELAY_TX_MS(X) (X*0x3CF00)
+#define ENABLE_DEBUG (1)
 #include "debug.h"
 //#include "od.h"
 
 #pragma GCC optimize ("O3")
-#define ID 0x08
+#define ID 0x03
 mutex_t mode_mtx = MUTEX_INIT;
 mutex_t auto_reply_mtx = MUTEX_INIT;
 
@@ -55,7 +56,7 @@ char sched_stack[THREAD_STACKSIZE_MAIN];
 #define SCHED_TIMEOUT         (10000UL * US_PER_MS)
 #define RANGE_RATE 0  //4 packets per 10 seconds
 static bool auto_reply = FALSE;
-#define queue_len 3
+#define queue_len 10
 static dw1000_queue_item queue[3];
 static uint8_t write_index = 0;
 static uint8_t read_index = 0;
@@ -193,9 +194,9 @@ void dw1000_rxcallback(netdev_t *dev,const dwt_callback_data_t *rxd)
         dw1000_calc_dist((dw1000_t*)dev,src_addr,Reply,Delay,curr_ts,last_rx_seq_nb,last_tx_seq_nb);
         dw1000_update_ranging_info((dw1000_t*)dev,src_addr,curr_ts,last_seq_nb,last_tx_seq_nb);
         if(ele*16+4 < ((dw1000_t*)dev)->rec_len){
-            printf("packet has extra payload ^^^^^^^^^^^^^^^^^^^^^\r\n");
+            DEBUG("packet has extra payload ^^^^^^^^^^^^^^^^^^^^^\r\n");
             if(dev->event_callback) {
-                DEBUG("rx call back  calling netdev callback with rx complete \r\n");
+                //DEBUG("rx call back  calling netdev callback with rx complete \r\n");
 
                 dev->event_callback(dev, NETDEV_EVENT_RX_COMPLETE);
             }
@@ -237,7 +238,7 @@ void dw1000_txcallback(netdev_t *dev,const dwt_callback_data_t *txd)
     dw1000_set_state((dw1000_t *)dev, NETOPT_STATE_RX);
 
     if(dev->event_callback) {
-        DEBUG("tx call back  calling netdev callback with tx complete \r\n");
+        //DEBUG("tx call back  calling netdev callback with tx complete \r\n");
 
         dev->event_callback(dev, NETDEV_EVENT_TX_COMPLETE);
     }
@@ -316,12 +317,12 @@ int dw1000_init(dw1000_t *dev)
     configData.rxCode =  4;
     configData.txCode = 4 ;
     configData.prf = DWT_PRF_16M;
-   // configData.dataRate = DWT_BR_110K;
-    configData.dataRate = DWT_BR_6M8;
-    //configData.txPreambLength = DWT_PLEN_1024 ;
-    configData.txPreambLength = DWT_PLEN_128;
-   // configData.rxPAC = DWT_PAC32 ;
-    configData.rxPAC = DWT_PAC8;
+    configData.dataRate = DWT_BR_110K;
+    //configData.dataRate = DWT_BR_6M8;
+    configData.txPreambLength = DWT_PLEN_1024 ;
+    //configData.txPreambLength = DWT_PLEN_128;
+    configData.rxPAC = DWT_PAC32 ;
+    //configData.rxPAC = DWT_PAC8;
     configData.nsSFD = 0 ;
     //configData.phrMode = DWT_PHRMODE_STD ;
     configData.phrMode = DWT_PHRMODE_EXT ;
@@ -416,6 +417,7 @@ size_t dw1000_send(dw1000_t *dev, const struct iovec *data, unsigned count)
         queue[write_index].time = now.seconds + (now.microseconds / 1000000.0);
         write_index = (write_index + 1) % queue_len;
         dev->seq_nb ++;
+        dev->seq_nb %= HISTORY_SIZE;
         dev->data_packets ++;
         send_busy = FALSE;
         return 0;    
@@ -435,7 +437,9 @@ size_t dw1000_send(dw1000_t *dev, const struct iovec *data, unsigned count)
     
     //insert ranging info
     uint32_t tx_timestamp = dwt_readsystimestamphi32();
-    tx_timestamp += DELAY_TX_100;
+    
+    //tx_timestamp += DELAY_TX_100 ;
+    tx_timestamp += DELAY_TX_MS(ID*20);
     uint64_t tx_timestamp_64 = tx_timestamp;
     tx_timestamp_64 = tx_timestamp_64 << 8;
     uint64_t sec_64 = now.seconds;
@@ -456,7 +460,7 @@ size_t dw1000_send(dw1000_t *dev, const struct iovec *data, unsigned count)
             memcpy(&tmp[offset], data[i].iov_base, data[i].iov_len);
             offset += data[i].iov_len;
 
-            DEBUG("iov len is %d \r\n",data[i].iov_len);
+            //DEBUG("iov len is %d \r\n",data[i].iov_len);
             if (offset > 1024) {
                 printf("dw1000 send is called with over size %d \r\n",offset);
                 //free(tmp);
@@ -504,6 +508,7 @@ size_t dw1000_send(dw1000_t *dev, const struct iovec *data, unsigned count)
     //free(tmp);
     DEBUG("dw1000 send is issued  \r\n");
     dev->seq_nb ++;
+    dev->seq_nb %= HISTORY_SIZE;
     //printf("sent %d bytes of data and packet len  %d \r\n",offset,pkt_len);
     
     return offset;
@@ -541,7 +546,7 @@ int dw1000_rx(dw1000_t *dev, uint8_t *buf, size_t max_len, void *info)
         uint8_t ele = dev->rec_buff[0]&0x7F;
         
         uint8_t ind = 16*ele + 4;
-        printf("reading from %d for %d bytes\r\n",ind,max_len);
+        DEBUG("reading from %d for %d bytes\r\n",ind,max_len);
         if (ind > max_len){
             ind = 0;
         }
@@ -677,7 +682,7 @@ uint64_t dw1000_calc_time_diff(uint64_t a,uint64_t b){
         OS_diff = -1*OS_diff;
     }
     if(OS_diff > 17){
-        printf("timer overflow with dist %d !!!!!!!!!!!!!\r\n",(int)OS_diff);
+        //printf("timer overflow with dist %d !!!!!!!!!!!!!\r\n",(int)OS_diff);
         while(OS_diff > 17){
             diff += UINT40_MAX;
             OS_diff -=17;

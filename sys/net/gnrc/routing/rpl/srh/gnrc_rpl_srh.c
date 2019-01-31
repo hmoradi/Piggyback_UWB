@@ -16,7 +16,7 @@
 #include "net/gnrc/ipv6/netif.h"
 #include "net/gnrc/rpl/srh.h"
 
-#define ENABLE_DEBUG    (0)
+#define ENABLE_DEBUG    (1)
 #include "debug.h"
 
 #if ENABLE_DEBUG

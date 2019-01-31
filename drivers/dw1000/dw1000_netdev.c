@@ -68,6 +68,10 @@ static inline uint16_t to_u16(void *buf)
 {
     return *((uint16_t *)buf);
 }
+static inline uint32_t to_u32(void *buf)
+{
+    return *((uint32_t *)buf);
+}
 //ported
 static inline int16_t to_i16(void *buf)
 {
@@ -260,9 +264,9 @@ static int _set(netdev_t *netdev, netopt_t opt, void *val, size_t val_len)
             return dw1000_set_chan(dev, to_u16(val));
 
         case NETOPT_TX_POWER:
-            assert(val_len == sizeof(int16_t));
-            dw1000_set_txpower(dev, to_i16(val));
-            return sizeof(int16_t);
+            assert(val_len == sizeof(uint32_t));
+            dw1000_set_txpower(dev, to_u32(val));
+            return sizeof(uint32_t);
 
         case NETOPT_STATE:
             assert(val_len == sizeof(netopt_state_t));

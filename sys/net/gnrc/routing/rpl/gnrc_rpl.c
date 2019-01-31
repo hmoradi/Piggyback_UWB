@@ -26,7 +26,7 @@
 #include "net/gnrc/rpl/p2p_dodag.h"
 #endif
 
-#define ENABLE_DEBUG    (0)
+#define ENABLE_DEBUG    (1)
 #include "debug.h"
 
 static char _stack[GNRC_RPL_STACK_SIZE];
@@ -129,6 +129,7 @@ gnrc_rpl_instance_t *gnrc_rpl_root_init(uint8_t instance_id, ipv6_addr_t *dodag_
 
 static void _receive(gnrc_pktsnip_t *icmpv6)
 {
+    printf("RPL: received a packet \r\n");
     gnrc_pktsnip_t *ipv6, *netif;
     ipv6_hdr_t *ipv6_hdr;
     icmpv6_hdr_t *icmpv6_hdr;
@@ -208,12 +209,12 @@ static void *_event_loop(void *args)
     trickle_t *trickle;
     /* start event loop */
     while (1) {
-        DEBUG("RPL: waiting for incoming message.\n");
+        //DEBUG("RPL: waiting for incoming message.\n");
         msg_receive(&msg);
 
         switch (msg.type) {
             case GNRC_RPL_MSG_TYPE_LIFETIME_UPDATE:
-                DEBUG("RPL: GNRC_RPL_MSG_TYPE_LIFETIME_UPDATE received\n");
+                //DEBUG("RPL: GNRC_RPL_MSG_TYPE_LIFETIME_UPDATE received\n");
                 _update_lifetime();
                 break;
             case GNRC_RPL_MSG_TYPE_TRICKLE_MSG:

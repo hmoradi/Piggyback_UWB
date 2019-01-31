@@ -102,7 +102,8 @@ static void _fib_add(const char *dest, const char *next, kernel_pid_t pid, uint3
 
     unsigned char *nxt = (unsigned char *)next;
     size_t nxt_size = (strlen(next));
-    uint32_t nxt_flags = 0;
+    //uint32_t nxt_flags = 0;
+    uint32_t nxt_flags = 1;
 
     /* determine destination address */
     if (inet_pton(AF_INET6, (char*)dst, tmp_ipv6_dst)) {

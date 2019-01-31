@@ -109,9 +109,9 @@ typedef int64_t         int64 ;
  * @brief   Default TX power configuration [in dBm]
  * @{
  */
-#define DW1000_TXPOWER_MIN      (-25)
-#define DW1000_TXPOWER_MAX      (31)
-#define DW1000_TXPOWER_DEFAULT  (15)
+#define DW1000_TXPOWER_MIN      (0xE0E0E0E0)
+#define DW1000_TXPOWER_MAX      (0x1f1f1f1f)
+#define DW1000_TXPOWER_DEFAULT  (0xcacacaca)
 /** @} */
 
 /**
@@ -132,6 +132,8 @@ enum {
 
 #define DELAY_TX_1 0x3CF00
 #define UINT40_MAX  0xFFFFFFFFFFUL
+#define HISTORY_SIZE 128
+#define MAX_DATA_LEN 127
 /**
  * @brief   Struct holding all parameters needed for device initialization
  * @{
@@ -140,11 +142,6 @@ typedef struct dw1000_params {
     spi_t spi;              /**< SPI bus the device is connected to */
     spi_clk_t spi_clk;      /**< SPI speed to use */
     gpio_t pin_cs;          /**< pin connected to chip select */
-//    gpio_t pin_fifo;        /**< pin connected to the FIFO interrupt pin */
-//    gpio_t pin_fifop;       /**< pin connected to the FIFOP interrupt pin */
-//    gpio_t pin_cca;         /**< pin connected to CCA */
-//    gpio_t pin_sfd;         /**< pin connected to 'start of frame delimiter' */
-//    gpio_t pin_vrefen;      /**< pin connected to the Vref enable pin */
     gpio_t pin_reset;       /**< pin connected to the reset pin */
     gpio_t pin_irq;
 } dw1000_params_t;
@@ -159,8 +156,7 @@ typedef struct {
  * @{
  */
 typedef struct {
-    //uint64_t last_tx_ts[255];
-    uint64_t last_rx_ts[255];
+    uint64_t last_rx_ts[HISTORY_SIZE];
     uint8_t  short_addr[2];
     uint8_t last_tx_seq_nb;
     uint8_t last_rx_seq_nb;
@@ -170,14 +166,14 @@ typedef struct {
     uint8_t seq_nb;
     float time;
     uint8_t datalen;
-    uint8_t data[100];
+    uint8_t data[MAX_DATA_LEN];
 } dw1000_queue_item;
 /** @} */
 /**
  * @brief   Device descriptor for DW1000 radio devices
  * @{
  */
-#define Num_Elements 2
+#define Num_Elements 5
 typedef struct {
     /* netdev fields */
     netdev_ieee802154_t netdev;   /**< netdev parent struct */   //maybee just use netdev_t
@@ -187,7 +183,7 @@ typedef struct {
     uint8_t state;                /**< current state of the radio */
     uint16_t options;             /**< state of used options */
     dw1000_ranging_info_t  ranging_info_array[Num_Elements]; /**< array of ranging info structs */
-    uint64_t last_tx_ts[255];
+    uint64_t last_tx_ts[HISTORY_SIZE];
     uint8_t seq_nb;
     uint32_t last_sec;
     uint8_t datarate;
@@ -323,7 +319,7 @@ int16_t dw1000_get_txpower(dw1000_t *dev);
  * @param[in] dev           device to write to
  * @param[in] txpower       transmission power in dBm
  */
-void dw1000_set_txpower(dw1000_t *dev, int16_t txpower);
+void dw1000_set_txpower(dw1000_t *dev, uint32_t txpower);
 
 /**
  * @brief   Enable or disable driver specific options
