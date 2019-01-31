@@ -44,6 +44,7 @@ USEMODULE += timex
 CFLAGS += -DDEVELHELP
 CFLAGS += -DGNRC_RPL_DEFAULT_NETIF=7
 CFLAGS += -DGNRC_RPL_DEFAULT_DIO_INTERVAL_MIN=8
+CFLAGS += -DGNRC_RPL_DEFAULT_DIO_INTERVAL_DOUBLINGS=20
 # Uncomment the following 2 lines to specify static link lokal IPv6 address
 # this might be useful for testing, in cases where you cannot or do not want to
 # run a shell with ifconfig to get the real link lokal address.
